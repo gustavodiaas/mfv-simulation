@@ -25,6 +25,13 @@ import {
   Truck,
   UserRound,
   X,
+  Zap,
+  FileText,
+  RefreshCw,
+  ShoppingCart,
+  ArrowLeftRight,
+  Layers,
+  BookOpen,
 } from 'lucide-react';
 import {
   cloneAsFuture,
@@ -33,13 +40,21 @@ import {
   newStep,
   simulate,
 } from './simulation';
-import type { ProcessStep, ProjectInfo, Scenario, ScenarioKind, SimulationResults } from './types';
+import type {
+  FlowType,
+  InfoFlowType,
+  ProcessStep,
+  ProjectInfo,
+  Scenario,
+  ScenarioKind,
+  SimulationResults,
+} from './types';
 
 type AppData = { project: ProjectInfo; current: Scenario; future: Scenario };
 type View = ScenarioKind | 'comparison';
 type EditorTab = 'project' | 'scenario' | 'processes';
 
-const STORAGE_KEY = 'mfv-simulation:v2';
+const STORAGE_KEY = 'mfv-simulation:v3';
 
 function initialData(): AppData {
   const current = createDefaultScenario('current');
@@ -49,7 +64,19 @@ function initialData(): AppData {
 function loadData(): AppData {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? (JSON.parse(stored) as AppData) : initialData();
+    if (stored) {
+      const parsed = JSON.parse(stored) as AppData;
+      // Migrar steps antigos sem flowAfter
+      const migrate = (s: Scenario): Scenario => ({
+        ...s,
+        infoSupplierFlow: s.infoSupplierFlow ?? 'manual',
+        infoShopFloorFlow: s.infoShopFloorFlow ?? 'manual',
+        infoCustomerFlow: s.infoCustomerFlow ?? 'electronic',
+        steps: s.steps.map((st) => ({ ...st, flowAfter: st.flowAfter ?? 'push' })),
+      });
+      return { ...parsed, current: migrate(parsed.current), future: migrate(parsed.future) };
+    }
+    return initialData();
   } catch {
     return initialData();
   }
@@ -83,6 +110,157 @@ function deltaPercent(current: number, future: number, inverse = false): number 
   return Math.abs(adjusted) < 0.0001 ? 0 : adjusted;
 }
 
+// ─── SVG symbols de MFV ───────────────────────────────────────────────────
+
+/** Seta de fluxo empurrado (push): seta larga preenchida */
+function PushArrow({ label }: { label?: string }) {
+  return (
+    <div className="mfv-flow-connector push">
+      {label && <span className="flow-label">{label}</span>}
+      <svg viewBox="0 0 52 24" width="52" height="24">
+        <polygon points="0,6 36,6 36,0 52,12 36,24 36,18 0,18" fill="#3d4451" />
+      </svg>
+    </div>
+  );
+}
+
+/** Seta de fluxo puxado (pull): seta com loop */
+function PullArrow({ label }: { label?: string }) {
+  return (
+    <div className="mfv-flow-connector pull">
+      {label && <span className="flow-label">{label}</span>}
+      <svg viewBox="0 0 52 28" width="52" height="28">
+        <path d="M4,14 Q4,4 26,4 Q48,4 48,14 Q48,24 26,24 Q12,24 8,18" fill="none" stroke="#0071e3" strokeWidth="2" />
+        <polygon points="4,8 4,20 -1,14" fill="#0071e3" />
+        <circle cx="8" cy="18" r="2.5" fill="#0071e3" />
+      </svg>
+    </div>
+  );
+}
+
+/** FIFO lane */
+function FifoArrow() {
+  return (
+    <div className="mfv-flow-connector fifo">
+      <svg viewBox="0 0 60 28" width="60" height="28">
+        <rect x="1" y="6" width="58" height="16" fill="none" stroke="#555" strokeWidth="1.5" />
+        <text x="30" y="17" textAnchor="middle" fontSize="7" fontWeight="700" fill="#333" fontFamily="Arial">FIFO</text>
+        <polygon points="48,6 58,14 48,22" fill="#555" />
+      </svg>
+      <span className="flow-label">FIFO</span>
+    </div>
+  );
+}
+
+/** Supermercado */
+function SupermarketSymbol({ units }: { units?: number }) {
+  return (
+    <div className="mfv-supermarket">
+      <svg viewBox="0 0 44 36" width="44" height="36">
+        {/* prateleiras */}
+        <rect x="2" y="2" width="40" height="32" fill="none" stroke="#2c5fa8" strokeWidth="1.5" />
+        <line x1="2" y1="13" x2="42" y2="13" stroke="#2c5fa8" strokeWidth="1" />
+        <line x1="2" y1="24" x2="42" y2="24" stroke="#2c5fa8" strokeWidth="1" />
+        {/* itens nas prateleiras */}
+        {[5, 15, 25].map((x) => (
+          <g key={x}>
+            <rect x={x} y="4" width="6" height="7" fill="#a8c4f0" stroke="#2c5fa8" strokeWidth="0.5" rx="0.5" />
+            <rect x={x} y="15" width="6" height="7" fill="#a8c4f0" stroke="#2c5fa8" strokeWidth="0.5" rx="0.5" />
+            <rect x={x} y="26" width="6" height="7" fill="#a8c4f0" stroke="#2c5fa8" strokeWidth="0.5" rx="0.5" />
+          </g>
+        ))}
+      </svg>
+      {units !== undefined && <strong className="supermarket-qty">{formatNumber(units, 0)} un</strong>}
+    </div>
+  );
+}
+
+/** Kanban burst (kaizen) */
+function KaizenBurst({ label }: { label?: string }) {
+  const pts = Array.from({ length: 16 }, (_, i) => {
+    const angle = (i / 16) * Math.PI * 2;
+    const r = i % 2 === 0 ? 17 : 11;
+    return `${18 + r * Math.cos(angle)},${18 + r * Math.sin(angle)}`;
+  }).join(' ');
+  return (
+    <div className="kaizen-burst">
+      <svg viewBox="0 0 36 36" width="36" height="36">
+        <polygon points={pts} fill="#ffe04b" stroke="#b8930f" strokeWidth="1" />
+        {label && <text x="18" y="21" textAnchor="middle" fontSize="6" fontWeight="800" fill="#6b4c00" fontFamily="Arial">{label}</text>}
+      </svg>
+    </div>
+  );
+}
+
+/** Seta de informação manual (sólida, curvada) */
+function InfoArrowManual({ label }: { label?: string }) {
+  return (
+    <div className="info-arrow manual">
+      <svg viewBox="0 0 80 32" width="80" height="32">
+        <path d="M4,26 Q40,2 76,14" fill="none" stroke="#333" strokeWidth="1.5" />
+        <polygon points="70,10 80,16 70,20" fill="#333" />
+      </svg>
+      {label && <span className="info-label">{label}</span>}
+    </div>
+  );
+}
+
+/** Seta de informação eletrônica (relâmpago tracejado) */
+function InfoArrowElectronic({ label }: { label?: string }) {
+  return (
+    <div className="info-arrow electronic">
+      <svg viewBox="0 0 80 32" width="80" height="32">
+        <path d="M4,26 Q40,2 76,14" fill="none" stroke="#0071e3" strokeWidth="1.5" strokeDasharray="4 3" />
+        {/* ícone relâmpago no meio */}
+        <polygon points="38,8 34,18 39,18 35,26 44,14 39,14" fill="#0071e3" opacity="0.85" />
+        <polygon points="70,10 80,16 70,20" fill="#0071e3" />
+      </svg>
+      {label && <span className="info-label electronic">{label}</span>}
+    </div>
+  );
+}
+
+/** Caminhão (fornecedor/cliente) */
+function TruckSymbol({ direction = 'right' }: { direction?: 'left' | 'right' }) {
+  return (
+    <svg viewBox="0 0 52 30" width="52" height="30" style={{ transform: direction === 'left' ? 'scaleX(-1)' : undefined }}>
+      {/* cabine */}
+      <rect x="28" y="6" width="22" height="18" rx="2" fill="#5d6470" />
+      <rect x="32" y="9" width="8" height="7" rx="1" fill="#a8d4f5" />
+      {/* carroceria */}
+      <rect x="2" y="4" width="30" height="20" rx="1" fill="#8a9099" />
+      {/* rodas */}
+      <circle cx="12" cy="26" r="4" fill="#2c2f35" />
+      <circle cx="12" cy="26" r="2" fill="#555" />
+      <circle cx="40" cy="26" r="4" fill="#2c2f35" />
+      <circle cx="40" cy="26" r="2" fill="#555" />
+    </svg>
+  );
+}
+
+/** Renderiza a seta de conexão entre processos baseada no tipo de fluxo */
+function FlowConnector({ type, units }: { type: FlowType; units: number }) {
+  switch (type) {
+    case 'pull': return <PullArrow label="Puxada" />;
+    case 'fifo': return <FifoArrow />;
+    case 'supermarket': return (
+      <div className="mfv-flow-supermarket">
+        <SupermarketSymbol units={units} />
+        <PullArrow label="Retirada" />
+      </div>
+    );
+    default: return <PushArrow label="Empurrado" />;
+  }
+}
+
+/** Seta de informação baseada no tipo */
+function InfoFlowArrow({ type, label }: { type: InfoFlowType; label?: string }) {
+  if (type === 'electronic') return <InfoArrowElectronic label={label} />;
+  return <InfoArrowManual label={label} />;
+}
+
+// ─── Field component ───────────────────────────────────────────────────────
+
 function Field({ label, value, onChange, type = 'text', suffix, min, max, step }: {
   label: string;
   value: string | number;
@@ -97,8 +275,28 @@ function Field({ label, value, onChange, type = 'text', suffix, min, max, step }
     <label className="editor-field">
       <span>{label}</span>
       <div className="editor-input-wrap">
-        <input type={type} value={value} min={min} max={max} step={step} onChange={(event) => onChange(event.target.value)} />
+        <input type={type} value={value} min={min} max={max} step={step} onChange={(e) => onChange(e.target.value)} />
         {suffix && <small>{suffix}</small>}
+      </div>
+    </label>
+  );
+}
+
+function SelectField({ label, value, onChange, options }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label className="editor-field">
+      <span>{label}</span>
+      <div className="editor-input-wrap">
+        <select value={value} onChange={(e) => onChange(e.target.value)}>
+          {options.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
       </div>
     </label>
   );
@@ -108,14 +306,7 @@ function ScenarioPill({ kind }: { kind: ScenarioKind }) {
   return <span className={`scenario-pill ${kind}`}>{kind === 'current' ? 'Estado atual' : 'Estado futuro'}</span>;
 }
 
-function FlowArrow({ caption }: { caption?: string }) {
-  return (
-    <div className="map-arrow">
-      {caption && <span>{caption}</span>}
-      <div><i /><ArrowRight size={15} strokeWidth={1.5} /></div>
-    </div>
-  );
-}
+// ─── Componentes do diagrama ───────────────────────────────────────────────
 
 function InventorySymbol({ units, days }: { units: number; days: number }) {
   return (
@@ -133,17 +324,29 @@ function ProcessBox({ step, metrics, index }: {
   index: number;
 }) {
   return (
-    <div className={`map-process ${metrics.isBottleneck ? 'bottleneck' : ''}`}>
+    <div className={`map-process ${metrics.isBottleneck ? 'bottleneck' : ''} ${metrics.isOverTakt ? 'over-takt' : ''}`}>
       <div className="process-title">
         <span>{String(index + 1).padStart(2, '0')}</span>
         <strong>{step.name}</strong>
       </div>
       <dl>
-        <div><dt>Nº operador</dt><dd>{formatNumber(step.operators, 0)}</dd></div>
-        <div><dt>T/C</dt><dd>{formatSeconds(step.cycleTimeSec)}</dd></div>
+        <div><dt>Nº operadores</dt><dd>{formatNumber(step.operators, 0)}</dd></div>
+        <div><dt>T/C</dt><dd className={metrics.isOverTakt ? 'over-takt-value' : ''}>{formatSeconds(step.cycleTimeSec)}</dd></div>
         <div><dt>Setup</dt><dd>{formatNumber(step.setupTimeMin, 1)} min</dd></div>
-        <div><dt>Recurso</dt><dd>{formatNumber(step.batchSize, 0)}</dd></div>
+        <div><dt>Lote</dt><dd>{formatNumber(step.batchSize, 0)}</dd></div>
         <div><dt>Disponibilidade</dt><dd>{formatNumber(step.availabilityPercent, 0)}%</dd></div>
+        <div className="takt-ratio-row">
+          <dt>T/C vs Takt</dt>
+          <dd>
+            <div className="takt-bar-wrap">
+              <div
+                className={`takt-bar ${metrics.isOverTakt ? 'over' : 'ok'}`}
+                style={{ width: `${Math.min(100, metrics.taktRatio * 100)}%` }}
+              />
+            </div>
+            <span>{formatNumber(metrics.taktRatio * 100, 0)}%</span>
+          </dd>
+        </div>
       </dl>
       {metrics.isBottleneck && <span className="map-bottleneck">Gargalo</span>}
     </div>
@@ -156,21 +359,35 @@ function MfvDiagram({ project, scenario, results, print = false }: {
   results: SimulationResults;
   print?: boolean;
 }) {
-  const width = Math.max(1420, 520 + scenario.steps.length * 210);
+  const width = Math.max(1480, 560 + scenario.steps.length * 230);
+
   return (
     <div className={`mfv-sheet ${print ? 'for-print' : ''}`} style={{ width }}>
+      {/* Cabeçalho da família */}
       <div className="map-family-bar">
         <span>Família de produto</span>
         <strong>{project.family || 'Não informada'}</strong>
         <small>{scenario.name}</small>
       </div>
 
+      {/* Linha de informação */}
       <div className="map-information-row">
-        <div className="map-party supplier"><Truck size={22} /><strong>{project.supplier || 'Fornecedor'}</strong></div>
-        <FlowArrow caption="Programação" />
+        {/* Fornecedor */}
+        <div className="map-party supplier">
+          <TruckSymbol direction="right" />
+          <strong>{project.supplier || 'Fornecedor'}</strong>
+          <span className="party-freq">a cada {project.deliveryFrequencyDays ?? 1} dia(s)</span>
+        </div>
+
+        {/* Seta info: fornecedor → controle */}
+        <div className="info-flow-col">
+          <InfoFlowArrow type={scenario.infoSupplierFlow} label="Pedido" />
+        </div>
+
+        {/* Controle de produção */}
         <div className="map-planning">
-          <div><Factory size={17} /><strong>Controle da produção</strong></div>
-          <span>Programação semanal</span>
+          <div><Factory size={15} /><strong>Controle da produção</strong></div>
+          <span>Programação {scenario.infoShopFloorFlow === 'electronic' ? 'eletrônica' : 'manual'}</span>
           <dl>
             <div><dt>Demanda mensal</dt><dd>{formatNumber(scenario.monthlyDemand, 0)} un</dd></div>
             <div><dt>Demanda diária</dt><dd>{formatNumber(results.dailyDemand, 2)} un</dd></div>
@@ -178,42 +395,83 @@ function MfvDiagram({ project, scenario, results, print = false }: {
             <div><dt>Tempo disponível</dt><dd>{formatNumber(scenario.availableMinutesPerDay, 0)} min/dia</dd></div>
           </dl>
         </div>
-        <FlowArrow caption="Demanda" />
-        <div className="map-party customer"><UserRound size={22} /><strong>{project.customer || 'Cliente final'}</strong></div>
+
+        {/* Seta info: cliente → controle */}
+        <div className="info-flow-col">
+          <InfoFlowArrow type={scenario.infoCustomerFlow} label="Previsão / Pedido" />
+        </div>
+
+        {/* Cliente */}
+        <div className="map-party customer">
+          <UserRound size={20} />
+          <strong>{project.customer || 'Cliente final'}</strong>
+          <span className="party-freq">a cada {project.shipmentFrequencyDays ?? 1} dia(s)</span>
+        </div>
       </div>
 
+      {/* Setas: controle → chão de fábrica */}
+      <div className="map-shopfloor-info-row">
+        <div className="shopfloor-info-arrow">
+          <InfoFlowArrow
+            type={scenario.infoShopFloorFlow}
+            label={scenario.infoShopFloorFlow === 'electronic' ? 'Ordem eletrônica' : 'Ordem de produção'}
+          />
+        </div>
+      </div>
+
+      {/* Linha de material */}
       <div className="map-material-row">
         <div className="map-origin">
-          <PackageOpen size={25} />
+          <PackageOpen size={22} />
           <strong>Matéria-prima</strong>
           <span>{project.area || 'Área não informada'}</span>
         </div>
-        <FlowArrow />
+
+        <PushArrow />
+
         {scenario.steps.map((step, index) => (
           <div className="map-process-group" key={step.id}>
             <ProcessBox step={step} metrics={results.stepMetrics[step.id]} index={index} />
-            <div className="inventory-after">
-              <FlowArrow />
+
+            {/* Conector entre processos (estoque + tipo de fluxo) */}
+            <div className="inventory-connector">
               <InventorySymbol units={step.wipUnits} days={results.stepMetrics[step.id].inventoryDays} />
+              {index < scenario.steps.length - 1 && (
+                <FlowConnector type={step.flowAfter} units={step.wipUnits} />
+              )}
             </div>
           </div>
         ))}
-        <div className="map-shipping"><Truck size={34} /><strong>Expedição</strong><span>{project.product || 'Produto'}</span></div>
+
+        <div className="map-shipping">
+          <TruckSymbol direction="right" />
+          <strong>Expedição</strong>
+          <span>{project.product || 'Produto'}</span>
+        </div>
       </div>
 
+      {/* Linha do tempo (dente de serra) */}
       <div className="map-time-ladder">
-        <div className="ladder-labels"><span>Estoque em dias</span><span>T/C</span></div>
+        <div className="ladder-labels">
+          <span>Estoque (dias)</span>
+          <span>T/C</span>
+        </div>
         <div className="ladder-track">
           {scenario.steps.map((step) => (
             <div className="ladder-step" key={step.id}>
-              <div><span>{formatNumber(results.stepMetrics[step.id].inventoryDays, 2)} dias</span></div>
-              <div><span>{formatSeconds(step.cycleTimeSec)}</span></div>
+              <div className="ladder-top">
+                <span>{formatNumber(results.stepMetrics[step.id].inventoryDays, 2)} d</span>
+              </div>
+              <div className="ladder-bottom">
+                <span>{formatSeconds(step.cycleTimeSec)}</span>
+              </div>
             </div>
           ))}
         </div>
         <div className="lead-summary">
-          <div><span>Lead time</span><strong>{formatNumber(results.leadTimeDays, 2)} dias</strong></div>
-          <div><span>Processamento</span><strong>{formatNumber(results.processingTimeMin, 1)} min</strong></div>
+          <div><span>Lead time total</span><strong>{formatNumber(results.leadTimeDays, 2)} dias</strong></div>
+          <div><span>Tempo processo</span><strong>{formatNumber(results.processingTimeMin, 1)} min</strong></div>
+          <div><span>Eficiência fluxo</span><strong>{formatNumber((results.processingTimeMin / (results.leadTimeDays * (scenario.availableMinutesPerDay || 558))) * 100, 1)}%</strong></div>
         </div>
       </div>
 
@@ -226,21 +484,32 @@ function MfvDiagram({ project, scenario, results, print = false }: {
   );
 }
 
-function MetricsStrip({ results }: { results: SimulationResults }) {
+// ─── Metrics strip ─────────────────────────────────────────────────────────
+
+function MetricsStrip({ results, scenario }: { results: SimulationResults; scenario: Scenario }) {
+  const efficiencyPct = (results.processingTimeMin / (results.leadTimeDays * (scenario.availableMinutesPerDay || 558))) * 100;
   const metrics = [
     { icon: <Clock3 size={17} />, label: 'Takt time', value: formatSeconds(results.taktTimeSec) },
     { icon: <Gauge size={17} />, label: 'Capacidade', value: `${formatNumber(results.capacityPerDay, 1)} un/dia` },
     { icon: <Route size={17} />, label: 'Lead time', value: `${formatNumber(results.leadTimeDays, 2)} dias` },
-    { icon: <Activity size={17} />, label: 'Balanceamento', value: `${formatNumber(results.lineBalance * 100, 0)}%` },
+    { icon: <Activity size={17} />, label: 'Eficiência fluxo', value: `${formatNumber(efficiencyPct, 1)}%`, highlight: efficiencyPct < 10 },
   ];
-  return <div className="metrics-strip">{metrics.map((metric) => <div key={metric.label}>{metric.icon}<span>{metric.label}</span><strong>{metric.value}</strong></div>)}</div>;
+  return (
+    <div className="metrics-strip">
+      {metrics.map((m) => (
+        <div key={m.label} className={m.highlight ? 'metric-alert' : ''}>
+          {m.icon}<span>{m.label}</span><strong>{m.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
 }
 
+// ─── Comparison ────────────────────────────────────────────────────────────
+
 function Comparison({ current, future, currentResults, futureResults }: {
-  current: Scenario;
-  future: Scenario;
-  currentResults: SimulationResults;
-  futureResults: SimulationResults;
+  current: Scenario; future: Scenario;
+  currentResults: SimulationResults; futureResults: SimulationResults;
 }) {
   const metrics = [
     { label: 'Capacidade', current: currentResults.capacityPerDay, future: futureResults.capacityPerDay, suffix: ' un/dia', inverse: false },
@@ -266,11 +535,20 @@ function Comparison({ current, future, currentResults, futureResults }: {
       </div>
       <div className="comparison-table-wrap">
         <table>
-          <thead><tr><th>Processo</th><th>TC atual</th><th>TC futuro</th><th>Estoque atual</th><th>Estoque futuro</th></tr></thead>
-          <tbody>{Array.from({ length: Math.max(current.steps.length, future.steps.length) }, (_, index) => {
-            const before = current.steps[index];
-            const after = future.steps[index];
-            return <tr key={`${before?.id}-${after?.id}`}><td>{after?.name || before?.name || '—'}</td><td>{before ? formatSeconds(before.cycleTimeSec) : '—'}</td><td>{after ? formatSeconds(after.cycleTimeSec) : '—'}</td><td>{before ? `${formatNumber(before.wipUnits, 0)} un` : '—'}</td><td>{after ? `${formatNumber(after.wipUnits, 0)} un` : '—'}</td></tr>;
+          <thead><tr><th>Processo</th><th>TC atual</th><th>TC futuro</th><th>WIP atual</th><th>WIP futuro</th><th>Fluxo</th></tr></thead>
+          <tbody>{Array.from({ length: Math.max(current.steps.length, future.steps.length) }, (_, i) => {
+            const before = current.steps[i];
+            const after = future.steps[i];
+            return (
+              <tr key={i}>
+                <td>{after?.name || before?.name || '—'}</td>
+                <td>{before ? formatSeconds(before.cycleTimeSec) : '—'}</td>
+                <td>{after ? formatSeconds(after.cycleTimeSec) : '—'}</td>
+                <td>{before ? `${formatNumber(before.wipUnits, 0)} un` : '—'}</td>
+                <td>{after ? `${formatNumber(after.wipUnits, 0)} un` : '—'}</td>
+                <td>{after ? FLOW_LABELS[after.flowAfter] : '—'}</td>
+              </tr>
+            );
           })}</tbody>
         </table>
       </div>
@@ -278,10 +556,89 @@ function Comparison({ current, future, currentResults, futureResults }: {
   );
 }
 
-function ProcessEditor({ scenario, onChange }: { scenario: Scenario; onChange: (scenario: Scenario) => void }) {
-  const updateStep = (id: string, patch: Partial<ProcessStep>) => onChange({ ...scenario, steps: scenario.steps.map((step) => step.id === id ? { ...step, ...patch } : step) });
-  const moveStep = (index: number, direction: -1 | 1) => {
-    const next = index + direction;
+// ─── Legenda da sidebar ────────────────────────────────────────────────────
+
+const FLOW_LABELS: Record<FlowType, string> = {
+  push: 'Empurrado',
+  pull: 'Puxado',
+  fifo: 'FIFO',
+  supermarket: 'Supermercado',
+};
+
+const INFO_FLOW_LABELS: Record<InfoFlowType, string> = {
+  manual: 'Manual (papel)',
+  electronic: 'Eletrônico (EDI/ERP)',
+  'kanban-production': 'Kanban de produção',
+  'kanban-withdrawal': 'Kanban de retirada',
+};
+
+function LegendPanel() {
+  return (
+    <div className="legend-panel">
+      <div className="legend-section">
+        <p className="legend-title">Fluxo de material</p>
+        <div className="legend-item">
+          <PushArrow /><span>Empurrado</span>
+        </div>
+        <div className="legend-item">
+          <PullArrow /><span>Puxado</span>
+        </div>
+        <div className="legend-item">
+          <FifoArrow /><span>FIFO</span>
+        </div>
+        <div className="legend-item">
+          <SupermarketSymbol /><span>Supermercado</span>
+        </div>
+        <div className="legend-item">
+          <div className="map-inventory-mini">
+            <div className="inventory-triangle-mini" />
+          </div>
+          <span>Estoque</span>
+        </div>
+      </div>
+      <div className="legend-section">
+        <p className="legend-title">Fluxo de informação</p>
+        <div className="legend-item">
+          <InfoArrowManual /><span>Manual</span>
+        </div>
+        <div className="legend-item">
+          <InfoArrowElectronic /><span>Eletrônico</span>
+        </div>
+      </div>
+      <div className="legend-section">
+        <p className="legend-title">Outros</p>
+        <div className="legend-item">
+          <KaizenBurst label="Kaizen" /><span>Kaizen burst</span>
+        </div>
+        <div className="legend-item">
+          <TruckSymbol /><span>Transporte</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Process editor ─────────────────────────────────────────────────────────
+
+const FLOW_OPTIONS = [
+  { value: 'push', label: 'Empurrado' },
+  { value: 'pull', label: 'Puxado' },
+  { value: 'fifo', label: 'FIFO' },
+  { value: 'supermarket', label: 'Supermercado' },
+];
+
+const INFO_FLOW_OPTIONS = [
+  { value: 'manual', label: 'Manual (papel)' },
+  { value: 'electronic', label: 'Eletrônico (EDI/ERP)' },
+  { value: 'kanban-production', label: 'Kanban de produção' },
+  { value: 'kanban-withdrawal', label: 'Kanban de retirada' },
+];
+
+function ProcessEditor({ scenario, onChange }: { scenario: Scenario; onChange: (s: Scenario) => void }) {
+  const updateStep = (id: string, patch: Partial<ProcessStep>) =>
+    onChange({ ...scenario, steps: scenario.steps.map((s) => s.id === id ? { ...s, ...patch } : s) });
+  const moveStep = (index: number, dir: -1 | 1) => {
+    const next = index + dir;
     if (next < 0 || next >= scenario.steps.length) return;
     const steps = [...scenario.steps];
     [steps[index], steps[next]] = [steps[next], steps[index]];
@@ -293,23 +650,41 @@ function ProcessEditor({ scenario, onChange }: { scenario: Scenario; onChange: (
         <article key={step.id}>
           <div className="process-editor-title">
             <span>{String(index + 1).padStart(2, '0')}</span>
-            <input aria-label={`Nome do processo ${index + 1}`} value={step.name} onChange={(event) => updateStep(step.id, { name: event.target.value })} />
-            <div><button onClick={() => moveStep(index, -1)} disabled={index === 0} aria-label="Mover para cima"><ChevronUp size={16} /></button><button onClick={() => moveStep(index, 1)} disabled={index === scenario.steps.length - 1} aria-label="Mover para baixo"><ChevronDown size={16} /></button><button className="delete" onClick={() => onChange({ ...scenario, steps: scenario.steps.filter((item) => item.id !== step.id) })} disabled={scenario.steps.length === 1} aria-label="Excluir processo"><Trash2 size={16} /></button></div>
+            <input aria-label={`Nome do processo ${index + 1}`} value={step.name} onChange={(e) => updateStep(step.id, { name: e.target.value })} />
+            <div>
+              <button onClick={() => moveStep(index, -1)} disabled={index === 0} aria-label="Mover para cima"><ChevronUp size={16} /></button>
+              <button onClick={() => moveStep(index, 1)} disabled={index === scenario.steps.length - 1} aria-label="Mover para baixo"><ChevronDown size={16} /></button>
+              <button className="delete" onClick={() => onChange({ ...scenario, steps: scenario.steps.filter((s) => s.id !== step.id) })} disabled={scenario.steps.length === 1} aria-label="Excluir"><Trash2 size={16} /></button>
+            </div>
           </div>
           <div className="process-editor-fields">
-            <Field label="Tempo de ciclo" type="number" suffix="s" value={step.cycleTimeSec} onChange={(value) => updateStep(step.id, { cycleTimeSec: clampNumber(value) })} />
-            <Field label="Setup" type="number" suffix="min" value={step.setupTimeMin} onChange={(value) => updateStep(step.id, { setupTimeMin: clampNumber(value) })} />
-            <Field label="Lote / recurso" type="number" suffix="un" value={step.batchSize} onChange={(value) => updateStep(step.id, { batchSize: clampNumber(value, 1) })} />
-            <Field label="Operadores" type="number" suffix="pess." value={step.operators} onChange={(value) => updateStep(step.id, { operators: clampNumber(value, 1) })} />
-            <Field label="Disponibilidade" type="number" suffix="%" value={step.availabilityPercent} onChange={(value) => updateStep(step.id, { availabilityPercent: Math.min(100, clampNumber(value, 100)) })} />
-            <Field label="Estoque após processo" type="number" suffix="un" value={step.wipUnits} onChange={(value) => updateStep(step.id, { wipUnits: clampNumber(value) })} />
+            <Field label="Tempo de ciclo" type="number" suffix="s" value={step.cycleTimeSec} onChange={(v) => updateStep(step.id, { cycleTimeSec: clampNumber(v) })} />
+            <Field label="Setup" type="number" suffix="min" value={step.setupTimeMin} onChange={(v) => updateStep(step.id, { setupTimeMin: clampNumber(v) })} />
+            <Field label="Lote / recurso" type="number" suffix="un" value={step.batchSize} onChange={(v) => updateStep(step.id, { batchSize: clampNumber(v, 1) })} />
+            <Field label="Operadores" type="number" suffix="pess." value={step.operators} onChange={(v) => updateStep(step.id, { operators: clampNumber(v, 1) })} />
+            <Field label="Disponibilidade" type="number" suffix="%" value={step.availabilityPercent} onChange={(v) => updateStep(step.id, { availabilityPercent: Math.min(100, clampNumber(v, 100)) })} />
+            <Field label="Estoque após processo" type="number" suffix="un" value={step.wipUnits} onChange={(v) => updateStep(step.id, { wipUnits: clampNumber(v) })} />
           </div>
+          {index < scenario.steps.length - 1 && (
+            <div className="process-flow-select">
+              <SelectField
+                label={`Fluxo após "${step.name}"`}
+                value={step.flowAfter}
+                onChange={(v) => updateStep(step.id, { flowAfter: v as FlowType })}
+                options={FLOW_OPTIONS}
+              />
+            </div>
+          )}
         </article>
       ))}
-      <button className="add-row" onClick={() => onChange({ ...scenario, steps: [...scenario.steps, newStep(scenario.id, scenario.steps.length + 1)] })}><Plus size={16} />Adicionar processo</button>
+      <button className="add-row" onClick={() => onChange({ ...scenario, steps: [...scenario.steps, newStep(scenario.id, scenario.steps.length + 1)] })}>
+        <Plus size={16} />Adicionar processo
+      </button>
     </div>
   );
 }
+
+// ─── DataEditor modal ──────────────────────────────────────────────────────
 
 function DataEditor({ project, scenario, tab, onTab, onProjectChange, onScenarioChange, onClose }: {
   project: ProjectInfo;
@@ -317,18 +692,48 @@ function DataEditor({ project, scenario, tab, onTab, onProjectChange, onScenario
   tab: EditorTab;
   onTab: (tab: EditorTab) => void;
   onProjectChange: (patch: Partial<ProjectInfo>) => void;
-  onScenarioChange: (scenario: Scenario) => void;
+  onScenarioChange: (s: Scenario) => void;
   onClose: () => void;
 }) {
   return (
     <div className="editor-overlay" role="dialog" aria-modal="true" aria-label="Editar dados do MFV">
       <button className="editor-backdrop" onClick={onClose} aria-label="Fechar edição" />
       <section className="editor-window">
-        <header><div><ScenarioPill kind={scenario.id} /><h2>Editar dados do MFV</h2><p>As alterações são salvas automaticamente.</p></div><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></header>
-        <nav><button className={tab === 'project' ? 'active' : ''} onClick={() => onTab('project')}>Identificação</button><button className={tab === 'scenario' ? 'active' : ''} onClick={() => onTab('scenario')}>Premissas</button><button className={tab === 'processes' ? 'active' : ''} onClick={() => onTab('processes')}>Processos</button></nav>
+        <header>
+          <div><ScenarioPill kind={scenario.id} /><h2>Editar dados do MFV</h2><p>As alterações são salvas automaticamente.</p></div>
+          <button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
+        </header>
+        <nav>
+          <button className={tab === 'project' ? 'active' : ''} onClick={() => onTab('project')}>Identificação</button>
+          <button className={tab === 'scenario' ? 'active' : ''} onClick={() => onTab('scenario')}>Premissas</button>
+          <button className={tab === 'processes' ? 'active' : ''} onClick={() => onTab('processes')}>Processos</button>
+        </nav>
         <div className="editor-body">
-          {tab === 'project' && <div className="editor-grid"><Field label="Área" value={project.area} onChange={(area) => onProjectChange({ area })} /><Field label="Família" value={project.family} onChange={(family) => onProjectChange({ family })} /><Field label="Produto" value={project.product} onChange={(product) => onProjectChange({ product })} /><Field label="Fornecedor" value={project.supplier} onChange={(supplier) => onProjectChange({ supplier })} /><Field label="Cliente" value={project.customer} onChange={(customer) => onProjectChange({ customer })} /><Field label="Responsável" value={project.owner} onChange={(owner) => onProjectChange({ owner })} /><Field label="Data de referência" type="date" value={project.referenceDate} onChange={(referenceDate) => onProjectChange({ referenceDate })} /></div>}
-          {tab === 'scenario' && <div className="editor-grid scenario-fields"><Field label="Demanda mensal" type="number" suffix="un/mês" value={scenario.monthlyDemand} onChange={(value) => onScenarioChange({ ...scenario, monthlyDemand: clampNumber(value) })} /><Field label="Dias úteis" type="number" suffix="dias/mês" value={scenario.workdaysPerMonth} onChange={(value) => onScenarioChange({ ...scenario, workdaysPerMonth: clampNumber(value, 1) })} /><Field label="Tempo disponível" type="number" suffix="min/dia" value={scenario.availableMinutesPerDay} onChange={(value) => onScenarioChange({ ...scenario, availableMinutesPerDay: clampNumber(value, 1) })} /><div className="editor-explanation"><CheckCircle2 size={18} /><p>Essas três premissas alimentam a demanda diária e o takt time do mapa.</p></div></div>}
+          {tab === 'project' && (
+            <div className="editor-grid">
+              <Field label="Área" value={project.area} onChange={(v) => onProjectChange({ area: v })} />
+              <Field label="Família" value={project.family} onChange={(v) => onProjectChange({ family: v })} />
+              <Field label="Produto" value={project.product} onChange={(v) => onProjectChange({ product: v })} />
+              <Field label="Fornecedor" value={project.supplier} onChange={(v) => onProjectChange({ supplier: v })} />
+              <Field label="Cliente" value={project.customer} onChange={(v) => onProjectChange({ customer: v })} />
+              <Field label="Responsável" value={project.owner} onChange={(v) => onProjectChange({ owner: v })} />
+              <Field label="Data de referência" type="date" value={project.referenceDate} onChange={(v) => onProjectChange({ referenceDate: v })} />
+              <Field label="Freq. entrega fornecedor" type="number" suffix="dias" value={project.deliveryFrequencyDays ?? 1} onChange={(v) => onProjectChange({ deliveryFrequencyDays: clampNumber(v, 1) })} />
+              <Field label="Freq. expedição cliente" type="number" suffix="dias" value={project.shipmentFrequencyDays ?? 1} onChange={(v) => onProjectChange({ shipmentFrequencyDays: clampNumber(v, 1) })} />
+            </div>
+          )}
+          {tab === 'scenario' && (
+            <div className="editor-grid scenario-fields">
+              <Field label="Demanda mensal" type="number" suffix="un/mês" value={scenario.monthlyDemand} onChange={(v) => onScenarioChange({ ...scenario, monthlyDemand: clampNumber(v) })} />
+              <Field label="Dias úteis" type="number" suffix="dias/mês" value={scenario.workdaysPerMonth} onChange={(v) => onScenarioChange({ ...scenario, workdaysPerMonth: clampNumber(v, 1) })} />
+              <Field label="Tempo disponível" type="number" suffix="min/dia" value={scenario.availableMinutesPerDay} onChange={(v) => onScenarioChange({ ...scenario, availableMinutesPerDay: clampNumber(v, 1) })} />
+              <div className="editor-explanation"><CheckCircle2 size={18} /><p>Essas três premissas alimentam a demanda diária e o takt time do mapa.</p></div>
+              <SelectField label="Info: fornecedor → controle" value={scenario.infoSupplierFlow} onChange={(v) => onScenarioChange({ ...scenario, infoSupplierFlow: v as InfoFlowType })} options={INFO_FLOW_OPTIONS} />
+              <SelectField label="Info: controle → chão de fábrica" value={scenario.infoShopFloorFlow} onChange={(v) => onScenarioChange({ ...scenario, infoShopFloorFlow: v as InfoFlowType })} options={INFO_FLOW_OPTIONS} />
+              <SelectField label="Info: cliente → controle" value={scenario.infoCustomerFlow} onChange={(v) => onScenarioChange({ ...scenario, infoCustomerFlow: v as InfoFlowType })} options={INFO_FLOW_OPTIONS} />
+              <div className="editor-explanation"><Zap size={18} /><p>Seta sólida = informação manual em papel. Seta tracejada com relâmpago = eletrônica (EDI, ERP, e-mail).</p></div>
+            </div>
+          )}
           {tab === 'processes' && <ProcessEditor scenario={scenario} onChange={onScenarioChange} />}
         </div>
         <footer><button className="primary-button" onClick={onClose}>Concluir</button></footer>
@@ -337,11 +742,14 @@ function DataEditor({ project, scenario, tab, onTab, onProjectChange, onScenario
   );
 }
 
+// ─── App ────────────────────────────────────────────────────────────────────
+
 function App() {
   const [data, setData] = useState<AppData>(() => loadData());
   const [view, setView] = useState<View>('current');
   const [lastScenario, setLastScenario] = useState<ScenarioKind>('current');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorTab, setEditorTab] = useState<EditorTab>('project');
   const [saved, setSaved] = useState(true);
@@ -354,49 +762,110 @@ function App() {
 
   useEffect(() => {
     setSaved(false);
-    const timer = window.setTimeout(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); setSaved(true); }, 350);
-    return () => window.clearTimeout(timer);
+    const t = window.setTimeout(() => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      setSaved(true);
+    }, 350);
+    return () => window.clearTimeout(t);
   }, [data]);
 
   useEffect(() => {
     if (!editorOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setEditorOpen(false); };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditorOpen(false); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, [editorOpen]);
 
-  const updateProject = useCallback((patch: Partial<ProjectInfo>) => setData((previous) => ({ ...previous, project: { ...previous.project, ...patch } })), []);
-  const updateScenario = useCallback((kind: ScenarioKind, scenario: Scenario) => setData((previous) => ({ ...previous, [kind]: scenario })), []);
+  const updateProject = useCallback((patch: Partial<ProjectInfo>) =>
+    setData((prev) => ({ ...prev, project: { ...prev.project, ...patch } })), []);
+  const updateScenario = useCallback((kind: ScenarioKind, scenario: Scenario) =>
+    setData((prev) => ({ ...prev, [kind]: scenario })), []);
   const selectView = (next: View) => { setView(next); if (next !== 'comparison') setLastScenario(next); };
   const openEditor = (tab: EditorTab) => { setEditorTab(tab); setEditorOpen(true); };
   const resetAll = () => { if (window.confirm('Restaurar os dados originais do modelo?')) { setData(initialData()); setView('current'); setLastScenario('current'); } };
-  const copyCurrentToFuture = () => { if (window.confirm('Substituir o Estado futuro por uma cópia do Estado atual?')) { setData((previous) => ({ ...previous, future: cloneAsFuture(previous.current) })); selectView('future'); } };
+  const copyCurrentToFuture = () => { if (window.confirm('Substituir o Estado futuro por uma cópia do Estado atual?')) { setData((prev) => ({ ...prev, future: cloneAsFuture(prev.current) })); selectView('future'); } };
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className="app-sidebar no-print">
-        <div className="sidebar-brand"><div className="app-symbol"><Route size={20} /></div><div className="sidebar-brand-text"><strong>MFV</strong><span>Simulador</span></div><button className="collapse-button" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? 'Expandir barra lateral' : 'Recolher barra lateral'}>{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
+        {/* Brand */}
+        <div className="sidebar-brand">
+          <div className="app-symbol"><Route size={20} /></div>
+          <div className="sidebar-brand-text"><strong>MFV</strong><span>Simulador</span></div>
+          <button className="collapse-button" onClick={() => setSidebarCollapsed((v) => !v)} aria-label={sidebarCollapsed ? 'Expandir' : 'Recolher'}>
+            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
+        </div>
+
+        {/* Cenários */}
+        <div className="sidebar-section-label"><span>Cenários</span></div>
         <nav className="sidebar-nav">
-          <button className={view === 'current' ? 'active' : ''} onClick={() => selectView('current')} title="Estado atual"><Map size={19} /><span>Estado atual</span></button>
-          <button className={view === 'future' ? 'active' : ''} onClick={() => selectView('future')} title="Estado futuro"><Route size={19} /><span>Estado futuro</span></button>
-          <button className={view === 'comparison' ? 'active' : ''} onClick={() => selectView('comparison')} title="Comparativo"><GitCompareArrows size={19} /><span>Comparativo</span></button>
+          <button className={view === 'current' ? 'active current' : ''} onClick={() => selectView('current')} title="Estado atual">
+            <Map size={18} /><span>Estado atual</span>
+          </button>
+          <button className={view === 'future' ? 'active future' : ''} onClick={() => selectView('future')} title="Estado futuro">
+            <Route size={18} /><span>Estado futuro</span>
+          </button>
+          <button className={view === 'comparison' ? 'active' : ''} onClick={() => selectView('comparison')} title="Comparativo">
+            <GitCompareArrows size={18} /><span>Comparativo</span>
+          </button>
         </nav>
-        <div className="sidebar-section-label"><span>Dados</span></div>
+
+        {/* Edição */}
+        <div className="sidebar-section-label"><span>Edição</span></div>
         <nav className="sidebar-nav secondary">
-          <button onClick={() => openEditor('project')} title="Identificação"><FilePenLine size={19} /><span>Identificação</span></button>
-          <button onClick={() => openEditor('scenario')} title="Premissas"><Settings2 size={19} /><span>Premissas</span></button>
-          <button onClick={() => openEditor('processes')} title="Processos"><Factory size={19} /><span>Processos</span></button>
+          <button onClick={() => openEditor('project')} title="Identificação">
+            <FilePenLine size={18} /><span>Identificação</span>
+          </button>
+          <button onClick={() => openEditor('scenario')} title="Premissas e fluxos de info">
+            <Settings2 size={18} /><span>Premissas</span>
+          </button>
+          <button onClick={() => openEditor('processes')} title="Processos e fluxos de material">
+            <Factory size={18} /><span>Processos</span>
+          </button>
         </nav>
-        <div className="sidebar-bottom"><div className="save-state"><Save size={15} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div><button onClick={resetAll} title="Restaurar dados"><RotateCcw size={17} /><span>Restaurar</span></button></div>
+
+        {/* Legenda */}
+        <div className="sidebar-section-label"><span>Referência</span></div>
+        <nav className="sidebar-nav secondary">
+          <button onClick={() => setLegendOpen((v) => !v)} title="Legenda MFV" className={legendOpen ? 'active' : ''}>
+            <BookOpen size={18} /><span>Legenda MFV</span>
+          </button>
+        </nav>
+
+        {legendOpen && !sidebarCollapsed && <LegendPanel />}
+
+        {/* Bottom */}
+        <div className="sidebar-bottom">
+          <div className="save-state"><Save size={14} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div>
+          <button onClick={() => window.print()} title="Imprimir MFV">
+            <Printer size={17} /><span>Imprimir</span>
+          </button>
+          {view === 'current' && (
+            <button onClick={copyCurrentToFuture} title="Copiar para futuro">
+              <Copy size={17} /><span>Copiar para futuro</span>
+            </button>
+          )}
+          <button onClick={resetAll} title="Restaurar dados">
+            <RotateCcw size={17} /><span>Restaurar</span>
+          </button>
+        </div>
       </aside>
 
       <main className="app-main no-print">
         <header className="app-header">
-          <div><ScenarioPill kind={activeKind} /><h1>{view === 'comparison' ? 'Comparativo' : activeScenario.name}</h1><p>{data.project.family || 'Família não informada'} <span>·</span> {data.project.product || 'Produto não informado'}</p></div>
+          <div>
+            <ScenarioPill kind={activeKind} />
+            <h1>{view === 'comparison' ? 'Comparativo' : activeScenario.name}</h1>
+            <p>{data.project.family || 'Família não informada'} <span>·</span> {data.project.product || 'Produto não informado'}</p>
+          </div>
           <div className="header-actions">
-            {view === 'current' && <button className="quiet-button" onClick={copyCurrentToFuture}><Copy size={17} />Copiar para futuro</button>}
-            <button className="quiet-button" onClick={() => openEditor(view === 'comparison' ? 'project' : 'processes')}><FilePenLine size={17} />Editar dados</button>
-            <button className="primary-button" onClick={() => window.print()}><Printer size={17} />Imprimir MFV</button>
+            <button className="quiet-button" onClick={() => openEditor(view === 'comparison' ? 'project' : 'processes')}>
+              <FilePenLine size={17} />Editar dados
+            </button>
+            <button className="primary-button" onClick={() => window.print()}>
+              <Printer size={17} />Imprimir MFV
+            </button>
           </div>
         </header>
 
@@ -405,19 +874,41 @@ function App() {
             <Comparison current={data.current} future={data.future} currentResults={currentResults} futureResults={futureResults} />
           ) : (
             <>
-              <MetricsStrip results={activeResults} />
+              <MetricsStrip results={activeResults} scenario={activeScenario} />
               <section className="map-stage">
-                <div className="stage-toolbar"><div><span>MFV convencional</span><strong>{activeScenario.name}</strong></div><button onClick={() => openEditor('processes')}><FilePenLine size={15} />Editar processos</button></div>
-                <div className="map-viewport"><MfvDiagram project={data.project} scenario={activeScenario} results={activeResults} /></div>
+                <div className="stage-toolbar">
+                  <div>
+                    <span>MFV convencional</span>
+                    <strong>{activeScenario.name}</strong>
+                  </div>
+                  <button onClick={() => openEditor('processes')}>
+                    <FilePenLine size={15} />Editar processos
+                  </button>
+                </div>
+                <div className="map-viewport">
+                  <MfvDiagram project={data.project} scenario={activeScenario} results={activeResults} />
+                </div>
               </section>
             </>
           )}
         </div>
       </main>
 
-      {editorOpen && <DataEditor project={data.project} scenario={activeScenario} tab={editorTab} onTab={setEditorTab} onProjectChange={updateProject} onScenarioChange={(scenario) => updateScenario(activeKind, scenario)} onClose={() => setEditorOpen(false)} />}
+      {editorOpen && (
+        <DataEditor
+          project={data.project}
+          scenario={activeScenario}
+          tab={editorTab}
+          onTab={setEditorTab}
+          onProjectChange={updateProject}
+          onScenarioChange={(s) => updateScenario(activeKind, s)}
+          onClose={() => setEditorOpen(false)}
+        />
+      )}
 
-      <div className="print-only"><MfvDiagram project={data.project} scenario={activeScenario} results={activeResults} print /></div>
+      <div className="print-only">
+        <MfvDiagram project={data.project} scenario={activeScenario} results={activeResults} print />
+      </div>
     </div>
   );
 }

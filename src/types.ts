@@ -1,5 +1,17 @@
 export type ScenarioKind = 'current' | 'future';
 
+export type FlowType =
+  | 'push'       // fluxo empurrado (seta larga)
+  | 'pull'       // fluxo puxado (seta com loop)
+  | 'fifo'       // FIFO lane
+  | 'supermarket'; // supermercado + kanban de retirada
+
+export type InfoFlowType =
+  | 'manual'     // seta sólida — ordem manual em papel
+  | 'electronic' // seta relâmpago tracejada — EDI/sistema
+  | 'kanban-production' // kanban de produção
+  | 'kanban-withdrawal'; // kanban de retirada
+
 export interface ProcessStep {
   id: string;
   name: string;
@@ -9,6 +21,8 @@ export interface ProcessStep {
   operators: number;
   availabilityPercent: number;
   wipUnits: number;
+  /** Tipo de conexão APÓS este processo (antes do próximo) */
+  flowAfter: FlowType;
 }
 
 export interface ProjectInfo {
@@ -19,6 +33,8 @@ export interface ProjectInfo {
   customer: string;
   owner: string;
   referenceDate: string;
+  deliveryFrequencyDays: number;   // frequência de entrega do fornecedor (dias)
+  shipmentFrequencyDays: number;   // frequência de expedição ao cliente (dias)
 }
 
 export interface Scenario {
@@ -28,6 +44,12 @@ export interface Scenario {
   workdaysPerMonth: number;
   availableMinutesPerDay: number;
   steps: ProcessStep[];
+  /** Fluxo de informação: controle de produção → fornecedor */
+  infoSupplierFlow: InfoFlowType;
+  /** Fluxo de informação: controle de produção → chão de fábrica */
+  infoShopFloorFlow: InfoFlowType;
+  /** Fluxo de informação: cliente → controle de produção */
+  infoCustomerFlow: InfoFlowType;
 }
 
 export interface StepMetrics {

@@ -8,15 +8,17 @@ export const DEFAULT_PROJECT: ProjectInfo = {
   customer: 'Cliente final',
   owner: '',
   referenceDate: new Date().toISOString().slice(0, 10),
+  deliveryFrequencyDays: 1,
+  shipmentFrequencyDays: 1,
 };
 
 const TEMPLATE_STEPS: ProcessStep[] = [
-  { id: 'posicionar-caixa', name: 'Posicionar caixa na esteira', cycleTimeSec: 690, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0 },
-  { id: 'iniciar-montagem', name: 'Início da montagem da caixa', cycleTimeSec: 1620, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0 },
-  { id: 'finalizar-montagem', name: 'Finalizar montagem e fechamento', cycleTimeSec: 2160, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0 },
-  { id: 'passar-fita', name: 'Passar fita de fechamento', cycleTimeSec: 450, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0 },
-  { id: 'tunel-embalamento', name: 'Túnel de embalamento', cycleTimeSec: 1980, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0 },
-  { id: 'adesivo-empilhamento', name: 'Colagem de adesivo e empilhamento', cycleTimeSec: 900, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0 },
+  { id: 'posicionar-caixa', name: 'Posicionar caixa na esteira', cycleTimeSec: 690, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0, flowAfter: 'push' },
+  { id: 'iniciar-montagem', name: 'Início da montagem da caixa', cycleTimeSec: 1620, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0, flowAfter: 'push' },
+  { id: 'finalizar-montagem', name: 'Finalizar montagem e fechamento', cycleTimeSec: 2160, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0, flowAfter: 'push' },
+  { id: 'passar-fita', name: 'Passar fita de fechamento', cycleTimeSec: 450, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0, flowAfter: 'push' },
+  { id: 'tunel-embalamento', name: 'Túnel de embalamento', cycleTimeSec: 1980, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0, flowAfter: 'push' },
+  { id: 'adesivo-empilhamento', name: 'Colagem de adesivo e empilhamento', cycleTimeSec: 900, setupTimeMin: 0, batchSize: 1, operators: 1, availabilityPercent: 100, wipUnits: 0, flowAfter: 'push' },
 ];
 
 export function createDefaultScenario(id: 'current' | 'future'): Scenario {
@@ -27,6 +29,9 @@ export function createDefaultScenario(id: 'current' | 'future'): Scenario {
     workdaysPerMonth: 21,
     availableMinutesPerDay: 558,
     steps: TEMPLATE_STEPS.map((step) => ({ ...step, id: `${id}-${step.id}` })),
+    infoSupplierFlow: 'manual',
+    infoShopFloorFlow: 'manual',
+    infoCustomerFlow: 'electronic',
   };
 }
 
@@ -130,5 +135,6 @@ export function newStep(scenarioId: 'current' | 'future', index: number): Proces
     operators: 1,
     availabilityPercent: 100,
     wipUnits: 0,
+    flowAfter: 'push',
   };
 }
