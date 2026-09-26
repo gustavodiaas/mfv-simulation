@@ -1,22 +1,30 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ArrowDown,
+  Activity,
   ArrowRight,
-  BarChart3,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  CircleAlert,
+  Clock3,
   Copy,
   Factory,
-  FileDown,
+  FilePenLine,
+  Gauge,
+  GitCompareArrows,
+  Map,
   PackageOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
+  Printer,
   RotateCcw,
+  Route,
   Save,
+  Settings2,
   Trash2,
   Truck,
   UserRound,
+  X,
 } from 'lucide-react';
 import {
   cloneAsFuture,
@@ -29,6 +37,7 @@ import type { ProcessStep, ProjectInfo, Scenario, ScenarioKind, SimulationResult
 
 type AppData = { project: ProjectInfo; current: Scenario; future: Scenario };
 type View = ScenarioKind | 'comparison';
+type EditorTab = 'project' | 'scenario' | 'processes';
 
 const STORAGE_KEY = 'mfv-simulation:v2';
 
@@ -85,9 +94,9 @@ function Field({ label, value, onChange, type = 'text', suffix, min, max, step }
   step?: number;
 }) {
   return (
-    <label className="field">
+    <label className="editor-field">
       <span>{label}</span>
-      <div className="field-control">
+      <div className="editor-input-wrap">
         <input type={type} value={value} min={min} max={max} step={step} onChange={(event) => onChange(event.target.value)} />
         {suffix && <small>{suffix}</small>}
       </div>
@@ -95,125 +104,136 @@ function Field({ label, value, onChange, type = 'text', suffix, min, max, step }
   );
 }
 
-function MetricCard({ label, value, detail, tone = 'blue' }: {
-  label: string;
-  value: string;
-  detail: string;
-  tone?: 'blue' | 'green' | 'amber' | 'red';
-}) {
+function ScenarioPill({ kind }: { kind: ScenarioKind }) {
+  return <span className={`scenario-pill ${kind}`}>{kind === 'current' ? 'Estado atual' : 'Estado futuro'}</span>;
+}
+
+function FlowArrow({ caption }: { caption?: string }) {
   return (
-    <div className={`metric-card metric-${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
+    <div className="map-arrow">
+      {caption && <span>{caption}</span>}
+      <div><i /><ArrowRight size={15} strokeWidth={1.5} /></div>
     </div>
   );
 }
 
-function ProcessCard({ step, metrics, index, total, onChange, onMove, onRemove }: {
-  step: ProcessStep;
-  metrics: SimulationResults['stepMetrics'][string];
-  index: number;
-  total: number;
-  onChange: (patch: Partial<ProcessStep>) => void;
-  onMove: (direction: -1 | 1) => void;
-  onRemove: () => void;
-}) {
+function InventorySymbol({ units, days }: { units: number; days: number }) {
   return (
-    <article className={`process-card ${metrics.isBottleneck ? 'is-bottleneck' : ''}`}>
-      <div className="process-card-head">
-        <div className="process-index">{String(index + 1).padStart(2, '0')}</div>
-        <input className="process-name" aria-label={`Nome do processo ${index + 1}`} value={step.name} onChange={(event) => onChange({ name: event.target.value })} />
-        {metrics.isBottleneck && <span className="bottleneck-tag">Gargalo</span>}
-      </div>
-      <div className="process-fields">
-        <Field label="Tempo de ciclo" type="number" min={0} step={1} suffix="s" value={step.cycleTimeSec} onChange={(value) => onChange({ cycleTimeSec: clampNumber(value) })} />
-        <Field label="Setup" type="number" min={0} step={1} suffix="min" value={step.setupTimeMin} onChange={(value) => onChange({ setupTimeMin: clampNumber(value) })} />
-        <Field label="Lote" type="number" min={1} step={1} suffix="un" value={step.batchSize} onChange={(value) => onChange({ batchSize: clampNumber(value, 1) })} />
-        <Field label="Operadores" type="number" min={1} step={1} suffix="pess." value={step.operators} onChange={(value) => onChange({ operators: clampNumber(value, 1) })} />
-        <Field label="Disponibilidade" type="number" min={1} max={100} step={1} suffix="%" value={step.availabilityPercent} onChange={(value) => onChange({ availabilityPercent: Math.min(100, clampNumber(value, 100)) })} />
-        <Field label="Estoque após processo" type="number" min={0} step={1} suffix="un" value={step.wipUnits} onChange={(value) => onChange({ wipUnits: clampNumber(value) })} />
-      </div>
-      <div className="process-card-foot">
-        <div><span>Capacidade</span><strong>{formatNumber(metrics.capacityPerDay, 1)} un/dia</strong></div>
-        <div><span>Estoque</span><strong>{formatNumber(metrics.inventoryDays, 2)} dias</strong></div>
-        <div className="card-actions">
-          <button onClick={() => onMove(-1)} disabled={index === 0} aria-label="Mover processo para a esquerda"><ChevronUp size={15} /></button>
-          <button onClick={() => onMove(1)} disabled={index === total - 1} aria-label="Mover processo para a direita"><ChevronDown size={15} /></button>
-          <button className="danger" onClick={onRemove} disabled={total <= 1} aria-label="Excluir processo"><Trash2 size={15} /></button>
-        </div>
-      </div>
-    </article>
+    <div className="map-inventory">
+      <div className="inventory-triangle" />
+      <strong>{formatNumber(units, 0)}</strong>
+      <span>{formatNumber(days, 2)} dias</span>
+    </div>
   );
 }
 
-function FlowMap({ project, scenario, results, onScenarioChange }: {
+function ProcessBox({ step, metrics, index }: {
+  step: ProcessStep;
+  metrics: SimulationResults['stepMetrics'][string];
+  index: number;
+}) {
+  return (
+    <div className={`map-process ${metrics.isBottleneck ? 'bottleneck' : ''}`}>
+      <div className="process-title">
+        <span>{String(index + 1).padStart(2, '0')}</span>
+        <strong>{step.name}</strong>
+      </div>
+      <dl>
+        <div><dt>Nº operador</dt><dd>{formatNumber(step.operators, 0)}</dd></div>
+        <div><dt>T/C</dt><dd>{formatSeconds(step.cycleTimeSec)}</dd></div>
+        <div><dt>Setup</dt><dd>{formatNumber(step.setupTimeMin, 1)} min</dd></div>
+        <div><dt>Recurso</dt><dd>{formatNumber(step.batchSize, 0)}</dd></div>
+        <div><dt>Disponibilidade</dt><dd>{formatNumber(step.availabilityPercent, 0)}%</dd></div>
+      </dl>
+      {metrics.isBottleneck && <span className="map-bottleneck">Gargalo</span>}
+    </div>
+  );
+}
+
+function MfvDiagram({ project, scenario, results, print = false }: {
   project: ProjectInfo;
   scenario: Scenario;
   results: SimulationResults;
-  onScenarioChange: (scenario: Scenario) => void;
+  print?: boolean;
 }) {
-  const updateStep = (id: string, patch: Partial<ProcessStep>) => {
-    onScenarioChange({ ...scenario, steps: scenario.steps.map((step) => step.id === id ? { ...step, ...patch } : step) });
-  };
-
-  const moveStep = (index: number, direction: -1 | 1) => {
-    const nextIndex = index + direction;
-    if (nextIndex < 0 || nextIndex >= scenario.steps.length) return;
-    const steps = [...scenario.steps];
-    [steps[index], steps[nextIndex]] = [steps[nextIndex], steps[index]];
-    onScenarioChange({ ...scenario, steps });
-  };
-
-  const removeStep = (id: string) => {
-    if (scenario.steps.length <= 1) return;
-    onScenarioChange({ ...scenario, steps: scenario.steps.filter((step) => step.id !== id) });
-  };
-
+  const width = Math.max(1420, 520 + scenario.steps.length * 210);
   return (
-    <>
-      <section className="metrics-grid">
-        <MetricCard label="Takt time" value={formatSeconds(results.taktTimeSec)} detail={`${formatNumber(results.dailyDemand, 2)} un/dia`} />
-        <MetricCard label="Capacidade da linha" value={`${formatNumber(results.capacityPerDay, 1)} un/dia`} detail={results.meetsDemand ? 'Atende à demanda' : 'Abaixo da demanda'} tone={results.meetsDemand ? 'green' : 'red'} />
-        <MetricCard label="Lead time" value={`${formatNumber(results.leadTimeDays, 2)} dias`} detail={`${formatNumber(results.totalWip, 0)} unidades em estoque`} tone="amber" />
-        <MetricCard label="Balanceamento" value={`${formatNumber(results.lineBalance * 100, 0)}%`} detail={`${formatNumber(results.processingTimeMin, 1)} min de processamento`} tone={results.lineBalance >= 0.8 ? 'green' : 'amber'} />
-      </section>
+    <div className={`mfv-sheet ${print ? 'for-print' : ''}`} style={{ width }}>
+      <div className="map-family-bar">
+        <span>Família de produto</span>
+        <strong>{project.family || 'Não informada'}</strong>
+        <small>{scenario.name}</small>
+      </div>
 
-      <section className="map-shell">
-        <div className="section-title-row">
-          <div><span className="eyebrow">Mapa do fluxo</span><h2>{scenario.name}</h2></div>
-          <p>{project.family || 'Família não informada'} · {project.product || 'Produto não informado'}</p>
+      <div className="map-information-row">
+        <div className="map-party supplier"><Truck size={22} /><strong>{project.supplier || 'Fornecedor'}</strong></div>
+        <FlowArrow caption="Programação" />
+        <div className="map-planning">
+          <div><Factory size={17} /><strong>Controle da produção</strong></div>
+          <span>Programação semanal</span>
+          <dl>
+            <div><dt>Demanda mensal</dt><dd>{formatNumber(scenario.monthlyDemand, 0)} un</dd></div>
+            <div><dt>Demanda diária</dt><dd>{formatNumber(results.dailyDemand, 2)} un</dd></div>
+            <div><dt>Takt time</dt><dd>{formatSeconds(results.taktTimeSec)}</dd></div>
+            <div><dt>Tempo disponível</dt><dd>{formatNumber(scenario.availableMinutesPerDay, 0)} min/dia</dd></div>
+          </dl>
         </div>
-        <div className="information-flow">
-          <div className="endpoint"><Truck size={18} /><span>{project.supplier || 'Fornecedor'}</span></div>
-          <div className="info-line"><span>Fluxo de informação e programação</span><ArrowRight size={18} /></div>
-          <div className="planning-box"><Factory size={18} /><span>Planejamento</span><strong>{formatNumber(scenario.monthlyDemand, 0)} un/mês</strong></div>
-          <div className="info-line"><ArrowRight size={18} /><span>Demanda</span></div>
-          <div className="endpoint"><UserRound size={18} /><span>{project.customer || 'Cliente final'}</span></div>
+        <FlowArrow caption="Demanda" />
+        <div className="map-party customer"><UserRound size={22} /><strong>{project.customer || 'Cliente final'}</strong></div>
+      </div>
+
+      <div className="map-material-row">
+        <div className="map-origin">
+          <PackageOpen size={25} />
+          <strong>Matéria-prima</strong>
+          <span>{project.area || 'Área não informada'}</span>
         </div>
-        <div className="flow-scroll">
-          <div className="flow-row">
-            <div className="material-endpoint"><PackageOpen size={22} /><span>Matéria-prima</span></div>
-            {scenario.steps.map((step, index) => (
-              <div className="flow-segment" key={step.id}>
-                <ArrowRight className="material-arrow" size={26} />
-                <ProcessCard step={step} metrics={results.stepMetrics[step.id]} index={index} total={scenario.steps.length} onChange={(patch) => updateStep(step.id, patch)} onMove={(direction) => moveStep(index, direction)} onRemove={() => removeStep(step.id)} />
-                <div className="inventory-marker" title="Estoque após o processo"><span className="triangle" /><strong>{formatNumber(step.wipUnits, 0)} un</strong><small>{formatNumber(results.stepMetrics[step.id].inventoryDays, 2)} dias</small></div>
-              </div>
-            ))}
-            <ArrowRight className="material-arrow" size={26} />
-            <div className="material-endpoint customer"><Truck size={22} /><span>Expedição</span></div>
+        <FlowArrow />
+        {scenario.steps.map((step, index) => (
+          <div className="map-process-group" key={step.id}>
+            <ProcessBox step={step} metrics={results.stepMetrics[step.id]} index={index} />
+            <div className="inventory-after">
+              <FlowArrow />
+              <InventorySymbol units={step.wipUnits} days={results.stepMetrics[step.id].inventoryDays} />
+            </div>
           </div>
+        ))}
+        <div className="map-shipping"><Truck size={34} /><strong>Expedição</strong><span>{project.product || 'Produto'}</span></div>
+      </div>
+
+      <div className="map-time-ladder">
+        <div className="ladder-labels"><span>Estoque em dias</span><span>T/C</span></div>
+        <div className="ladder-track">
+          {scenario.steps.map((step) => (
+            <div className="ladder-step" key={step.id}>
+              <div><span>{formatNumber(results.stepMetrics[step.id].inventoryDays, 2)} dias</span></div>
+              <div><span>{formatSeconds(step.cycleTimeSec)}</span></div>
+            </div>
+          ))}
         </div>
-        <button className="add-process" onClick={() => onScenarioChange({ ...scenario, steps: [...scenario.steps, newStep(scenario.id, scenario.steps.length + 1)] })}><Plus size={16} />Adicionar processo</button>
-        <div className="timeline">
-          <div><span>Tempo em estoque</span><strong>{formatNumber(results.inventoryLeadTimeDays, 2)} dias</strong></div><ArrowDown size={16} />
-          <div><span>Tempo de processamento</span><strong>{formatNumber(results.processingTimeMin, 1)} min</strong></div><ArrowDown size={16} />
-          <div className="timeline-total"><span>Lead time total</span><strong>{formatNumber(results.leadTimeDays, 2)} dias</strong></div>
+        <div className="lead-summary">
+          <div><span>Lead time</span><strong>{formatNumber(results.leadTimeDays, 2)} dias</strong></div>
+          <div><span>Processamento</span><strong>{formatNumber(results.processingTimeMin, 1)} min</strong></div>
         </div>
-      </section>
-    </>
+      </div>
+
+      <div className="map-footer-meta">
+        <span>Produto: <strong>{project.product || '—'}</strong></span>
+        <span>Responsável: <strong>{project.owner || '—'}</strong></span>
+        <span>Referência: <strong>{formatDate(project.referenceDate)}</strong></span>
+      </div>
+    </div>
   );
+}
+
+function MetricsStrip({ results }: { results: SimulationResults }) {
+  const metrics = [
+    { icon: <Clock3 size={17} />, label: 'Takt time', value: formatSeconds(results.taktTimeSec) },
+    { icon: <Gauge size={17} />, label: 'Capacidade', value: `${formatNumber(results.capacityPerDay, 1)} un/dia` },
+    { icon: <Route size={17} />, label: 'Lead time', value: `${formatNumber(results.leadTimeDays, 2)} dias` },
+    { icon: <Activity size={17} />, label: 'Balanceamento', value: `${formatNumber(results.lineBalance * 100, 0)}%` },
+  ];
+  return <div className="metrics-strip">{metrics.map((metric) => <div key={metric.label}>{metric.icon}<span>{metric.label}</span><strong>{metric.value}</strong></div>)}</div>;
 }
 
 function Comparison({ current, future, currentResults, futureResults }: {
@@ -223,53 +243,114 @@ function Comparison({ current, future, currentResults, futureResults }: {
   futureResults: SimulationResults;
 }) {
   const metrics = [
-    { label: 'Capacidade da linha', current: currentResults.capacityPerDay, future: futureResults.capacityPerDay, suffix: ' un/dia', inverse: false },
+    { label: 'Capacidade', current: currentResults.capacityPerDay, future: futureResults.capacityPerDay, suffix: ' un/dia', inverse: false },
     { label: 'Lead time', current: currentResults.leadTimeDays, future: futureResults.leadTimeDays, suffix: ' dias', inverse: true },
     { label: 'Estoque total', current: currentResults.totalWip, future: futureResults.totalWip, suffix: ' un', inverse: true },
-    { label: 'Tempo de processamento', current: currentResults.processingTimeMin, future: futureResults.processingTimeMin, suffix: ' min', inverse: true },
-    { label: 'Balanceamento', current: currentResults.lineBalance * 100, future: futureResults.lineBalance * 100, suffix: '%', inverse: false },
+    { label: 'Processamento', current: currentResults.processingTimeMin, future: futureResults.processingTimeMin, suffix: ' min', inverse: true },
   ];
   return (
-    <section className="comparison-shell">
-      <div className="section-title-row"><div><span className="eyebrow">Estado atual x Estado futuro</span><h2>Comparativo de cenários</h2></div><p>Os ganhos são calculados com as mesmas regras nos dois cenários.</p></div>
-      <div className="comparison-grid">
+    <section className="comparison-view">
+      <div className="comparison-intro"><ScenarioPill kind="current" /><ArrowRight size={18} /><ScenarioPill kind="future" /></div>
+      <div className="comparison-cards">
         {metrics.map((metric) => {
           const delta = deltaPercent(metric.current, metric.future, metric.inverse);
-          const positive = delta !== null && delta >= 0;
-          return <article className="comparison-card" key={metric.label}><span>{metric.label}</span><div className="comparison-values"><div><small>Atual</small><strong>{formatNumber(metric.current, metric.suffix === '%' ? 0 : 1)}{metric.suffix}</strong></div><ArrowRight size={18} /><div><small>Futuro</small><strong>{formatNumber(metric.future, metric.suffix === '%' ? 0 : 1)}{metric.suffix}</strong></div></div><div className={`delta ${delta === null ? 'neutral' : positive ? 'positive' : 'negative'}`}>{delta === null ? 'Sem base para comparação' : `${delta >= 0 ? '+' : ''}${formatNumber(delta, 1)}% de ganho`}</div></article>;
+          return (
+            <article key={metric.label}>
+              <span>{metric.label}</span>
+              <div><small>Atual</small><strong>{formatNumber(metric.current, 1)}{metric.suffix}</strong></div>
+              <div><small>Futuro</small><strong>{formatNumber(metric.future, 1)}{metric.suffix}</strong></div>
+              <em className={delta !== null && delta < 0 ? 'negative' : ''}>{delta === null ? 'Sem base' : `${delta >= 0 ? '+' : ''}${formatNumber(delta, 1)}%`}</em>
+            </article>
+          );
         })}
       </div>
-      <div className="comparison-table-wrap"><table className="comparison-table"><thead><tr><th>Processo</th><th>TC atual</th><th>TC futuro</th><th>Estoque atual</th><th>Estoque futuro</th><th>Variação do TC</th></tr></thead><tbody>
-        {Array.from({ length: Math.max(current.steps.length, future.steps.length) }, (_, index) => {
-          const currentStep = current.steps[index];
-          const futureStep = future.steps[index];
-          const delta = currentStep && futureStep ? deltaPercent(currentStep.cycleTimeSec, futureStep.cycleTimeSec, true) : null;
-          return <tr key={`${currentStep?.id ?? 'none'}-${futureStep?.id ?? 'none'}`}><td>{futureStep?.name || currentStep?.name || '—'}</td><td>{currentStep ? formatSeconds(currentStep.cycleTimeSec) : '—'}</td><td>{futureStep ? formatSeconds(futureStep.cycleTimeSec) : '—'}</td><td>{currentStep ? `${formatNumber(currentStep.wipUnits, 0)} un` : '—'}</td><td>{futureStep ? `${formatNumber(futureStep.wipUnits, 0)} un` : '—'}</td><td>{delta === null ? '—' : `${delta >= 0 ? '+' : ''}${formatNumber(delta, 1)}%`}</td></tr>;
-        })}
-      </tbody></table></div>
+      <div className="comparison-table-wrap">
+        <table>
+          <thead><tr><th>Processo</th><th>TC atual</th><th>TC futuro</th><th>Estoque atual</th><th>Estoque futuro</th></tr></thead>
+          <tbody>{Array.from({ length: Math.max(current.steps.length, future.steps.length) }, (_, index) => {
+            const before = current.steps[index];
+            const after = future.steps[index];
+            return <tr key={`${before?.id}-${after?.id}`}><td>{after?.name || before?.name || '—'}</td><td>{before ? formatSeconds(before.cycleTimeSec) : '—'}</td><td>{after ? formatSeconds(after.cycleTimeSec) : '—'}</td><td>{before ? `${formatNumber(before.wipUnits, 0)} un` : '—'}</td><td>{after ? `${formatNumber(after.wipUnits, 0)} un` : '—'}</td></tr>;
+          })}</tbody>
+        </table>
+      </div>
     </section>
   );
 }
 
-function PrintScenario({ project, scenario, results }: { project: ProjectInfo; scenario: Scenario; results: SimulationResults }) {
+function ProcessEditor({ scenario, onChange }: { scenario: Scenario; onChange: (scenario: Scenario) => void }) {
+  const updateStep = (id: string, patch: Partial<ProcessStep>) => onChange({ ...scenario, steps: scenario.steps.map((step) => step.id === id ? { ...step, ...patch } : step) });
+  const moveStep = (index: number, direction: -1 | 1) => {
+    const next = index + direction;
+    if (next < 0 || next >= scenario.steps.length) return;
+    const steps = [...scenario.steps];
+    [steps[index], steps[next]] = [steps[next], steps[index]];
+    onChange({ ...scenario, steps });
+  };
   return (
-    <section className="print-page">
-      <header className="print-header"><div><span>MFV convencional</span><h1>{scenario.name}</h1></div><div><strong>{project.family || 'Família não informada'}</strong><span>{project.product || 'Produto não informado'}</span></div></header>
-      <div className="print-meta"><span>Área: <strong>{project.area || '—'}</strong></span><span>Responsável: <strong>{project.owner || '—'}</strong></span><span>Referência: <strong>{formatDate(project.referenceDate)}</strong></span></div>
-      <div className="print-kpis"><div><span>Demanda</span><strong>{formatNumber(scenario.monthlyDemand, 0)} un/mês</strong></div><div><span>Takt time</span><strong>{formatSeconds(results.taktTimeSec)}</strong></div><div><span>Capacidade</span><strong>{formatNumber(results.capacityPerDay, 1)} un/dia</strong></div><div><span>Lead time</span><strong>{formatNumber(results.leadTimeDays, 2)} dias</strong></div></div>
-      <div className="print-flow"><div className="print-endpoint">{project.supplier || 'Fornecedor'}</div>{scenario.steps.map((step) => <div className="print-step-wrap" key={step.id}><ArrowRight size={16} /><div className={`print-step ${results.stepMetrics[step.id].isBottleneck ? 'is-bottleneck' : ''}`}><strong>{step.name}</strong><span>TC: {formatSeconds(step.cycleTimeSec)}</span><span>Setup: {formatNumber(step.setupTimeMin, 1)} min</span><span>Operadores: {formatNumber(step.operators, 0)}</span><span>Disponibilidade: {formatNumber(step.availabilityPercent, 0)}%</span><span>Estoque: {formatNumber(step.wipUnits, 0)} un</span></div></div>)}<ArrowRight size={16} /><div className="print-endpoint">{project.customer || 'Cliente final'}</div></div>
-      <table className="print-table"><thead><tr><th>Processo</th><th>TC</th><th>TC efetivo</th><th>Capacidade/dia</th><th>Estoque</th><th>Estoque em dias</th></tr></thead><tbody>{scenario.steps.map((step) => <tr key={step.id}><td>{step.name}</td><td>{formatSeconds(step.cycleTimeSec)}</td><td>{formatSeconds(results.stepMetrics[step.id].effectiveCycleTimeSec)}</td><td>{formatNumber(results.stepMetrics[step.id].capacityPerDay, 1)}</td><td>{formatNumber(step.wipUnits, 0)}</td><td>{formatNumber(results.stepMetrics[step.id].inventoryDays, 2)}</td></tr>)}</tbody></table>
-      <footer className="print-footer"><span>Tempo de processamento: {formatNumber(results.processingTimeMin, 1)} min</span><strong>Lead time total: {formatNumber(results.leadTimeDays, 2)} dias</strong></footer>
-    </section>
+    <div className="process-editor">
+      {scenario.steps.map((step, index) => (
+        <article key={step.id}>
+          <div className="process-editor-title">
+            <span>{String(index + 1).padStart(2, '0')}</span>
+            <input aria-label={`Nome do processo ${index + 1}`} value={step.name} onChange={(event) => updateStep(step.id, { name: event.target.value })} />
+            <div><button onClick={() => moveStep(index, -1)} disabled={index === 0} aria-label="Mover para cima"><ChevronUp size={16} /></button><button onClick={() => moveStep(index, 1)} disabled={index === scenario.steps.length - 1} aria-label="Mover para baixo"><ChevronDown size={16} /></button><button className="delete" onClick={() => onChange({ ...scenario, steps: scenario.steps.filter((item) => item.id !== step.id) })} disabled={scenario.steps.length === 1} aria-label="Excluir processo"><Trash2 size={16} /></button></div>
+          </div>
+          <div className="process-editor-fields">
+            <Field label="Tempo de ciclo" type="number" suffix="s" value={step.cycleTimeSec} onChange={(value) => updateStep(step.id, { cycleTimeSec: clampNumber(value) })} />
+            <Field label="Setup" type="number" suffix="min" value={step.setupTimeMin} onChange={(value) => updateStep(step.id, { setupTimeMin: clampNumber(value) })} />
+            <Field label="Lote / recurso" type="number" suffix="un" value={step.batchSize} onChange={(value) => updateStep(step.id, { batchSize: clampNumber(value, 1) })} />
+            <Field label="Operadores" type="number" suffix="pess." value={step.operators} onChange={(value) => updateStep(step.id, { operators: clampNumber(value, 1) })} />
+            <Field label="Disponibilidade" type="number" suffix="%" value={step.availabilityPercent} onChange={(value) => updateStep(step.id, { availabilityPercent: Math.min(100, clampNumber(value, 100)) })} />
+            <Field label="Estoque após processo" type="number" suffix="un" value={step.wipUnits} onChange={(value) => updateStep(step.id, { wipUnits: clampNumber(value) })} />
+          </div>
+        </article>
+      ))}
+      <button className="add-row" onClick={() => onChange({ ...scenario, steps: [...scenario.steps, newStep(scenario.id, scenario.steps.length + 1)] })}><Plus size={16} />Adicionar processo</button>
+    </div>
+  );
+}
+
+function DataEditor({ project, scenario, tab, onTab, onProjectChange, onScenarioChange, onClose }: {
+  project: ProjectInfo;
+  scenario: Scenario;
+  tab: EditorTab;
+  onTab: (tab: EditorTab) => void;
+  onProjectChange: (patch: Partial<ProjectInfo>) => void;
+  onScenarioChange: (scenario: Scenario) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="editor-overlay" role="dialog" aria-modal="true" aria-label="Editar dados do MFV">
+      <button className="editor-backdrop" onClick={onClose} aria-label="Fechar edição" />
+      <section className="editor-window">
+        <header><div><ScenarioPill kind={scenario.id} /><h2>Editar dados do MFV</h2><p>As alterações são salvas automaticamente.</p></div><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></header>
+        <nav><button className={tab === 'project' ? 'active' : ''} onClick={() => onTab('project')}>Identificação</button><button className={tab === 'scenario' ? 'active' : ''} onClick={() => onTab('scenario')}>Premissas</button><button className={tab === 'processes' ? 'active' : ''} onClick={() => onTab('processes')}>Processos</button></nav>
+        <div className="editor-body">
+          {tab === 'project' && <div className="editor-grid"><Field label="Área" value={project.area} onChange={(area) => onProjectChange({ area })} /><Field label="Família" value={project.family} onChange={(family) => onProjectChange({ family })} /><Field label="Produto" value={project.product} onChange={(product) => onProjectChange({ product })} /><Field label="Fornecedor" value={project.supplier} onChange={(supplier) => onProjectChange({ supplier })} /><Field label="Cliente" value={project.customer} onChange={(customer) => onProjectChange({ customer })} /><Field label="Responsável" value={project.owner} onChange={(owner) => onProjectChange({ owner })} /><Field label="Data de referência" type="date" value={project.referenceDate} onChange={(referenceDate) => onProjectChange({ referenceDate })} /></div>}
+          {tab === 'scenario' && <div className="editor-grid scenario-fields"><Field label="Demanda mensal" type="number" suffix="un/mês" value={scenario.monthlyDemand} onChange={(value) => onScenarioChange({ ...scenario, monthlyDemand: clampNumber(value) })} /><Field label="Dias úteis" type="number" suffix="dias/mês" value={scenario.workdaysPerMonth} onChange={(value) => onScenarioChange({ ...scenario, workdaysPerMonth: clampNumber(value, 1) })} /><Field label="Tempo disponível" type="number" suffix="min/dia" value={scenario.availableMinutesPerDay} onChange={(value) => onScenarioChange({ ...scenario, availableMinutesPerDay: clampNumber(value, 1) })} /><div className="editor-explanation"><CheckCircle2 size={18} /><p>Essas três premissas alimentam a demanda diária e o takt time do mapa.</p></div></div>}
+          {tab === 'processes' && <ProcessEditor scenario={scenario} onChange={onScenarioChange} />}
+        </div>
+        <footer><button className="primary-button" onClick={onClose}>Concluir</button></footer>
+      </section>
+    </div>
   );
 }
 
 function App() {
   const [data, setData] = useState<AppData>(() => loadData());
   const [view, setView] = useState<View>('current');
+  const [lastScenario, setLastScenario] = useState<ScenarioKind>('current');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorTab, setEditorTab] = useState<EditorTab>('project');
   const [saved, setSaved] = useState(true);
+
   const currentResults = simulate(data.current);
   const futureResults = simulate(data.future);
+  const activeKind = view === 'comparison' ? lastScenario : view;
+  const activeScenario = data[activeKind];
+  const activeResults = activeKind === 'current' ? currentResults : futureResults;
 
   useEffect(() => {
     setSaved(false);
@@ -277,29 +358,66 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [data]);
 
+  useEffect(() => {
+    if (!editorOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setEditorOpen(false); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [editorOpen]);
+
   const updateProject = useCallback((patch: Partial<ProjectInfo>) => setData((previous) => ({ ...previous, project: { ...previous.project, ...patch } })), []);
   const updateScenario = useCallback((kind: ScenarioKind, scenario: Scenario) => setData((previous) => ({ ...previous, [kind]: scenario })), []);
-  const resetAll = () => { if (window.confirm('Restaurar o modelo inicial? As alterações salvas neste navegador serão substituídas.')) { setData(initialData()); setView('current'); } };
-  const copyCurrentToFuture = () => { setData((previous) => ({ ...previous, future: cloneAsFuture(previous.current) })); setView('future'); };
-  const activeScenario = view === 'future' ? data.future : data.current;
-  const activeResults = view === 'future' ? futureResults : currentResults;
+  const selectView = (next: View) => { setView(next); if (next !== 'comparison') setLastScenario(next); };
+  const openEditor = (tab: EditorTab) => { setEditorTab(tab); setEditorOpen(true); };
+  const resetAll = () => { if (window.confirm('Restaurar os dados originais do modelo?')) { setData(initialData()); setView('current'); setLastScenario('current'); } };
+  const copyCurrentToFuture = () => { if (window.confirm('Substituir o Estado futuro por uma cópia do Estado atual?')) { setData((previous) => ({ ...previous, future: cloneAsFuture(previous.current) })); selectView('future'); } };
 
   return (
-    <div className="app-shell">
-      <header className="topbar no-print"><div className="brand"><div className="brand-mark"><BarChart3 size={22} /></div><div><span>Mapeamento de Fluxo de Valor</span><h1>Simulador MFV</h1></div></div><div className="header-actions"><span className={`save-status ${saved ? 'is-saved' : ''}`}><Save size={14} />{saved ? 'Salvo neste navegador' : 'Salvando…'}</span><button className="button button-secondary" onClick={resetAll}><RotateCcw size={16} />Restaurar</button><button className="button button-primary" onClick={() => window.print()}><FileDown size={16} />Imprimir / salvar PDF</button></div></header>
-      <main className="workspace no-print">
-        <aside className="sidebar">
-          <section className="sidebar-section"><div className="sidebar-heading"><span>01</span><h2>Identificação</h2></div><Field label="Área" value={data.project.area} onChange={(area) => updateProject({ area })} /><Field label="Família" value={data.project.family} onChange={(family) => updateProject({ family })} /><Field label="Produto" value={data.project.product} onChange={(product) => updateProject({ product })} /><Field label="Fornecedor" value={data.project.supplier} onChange={(supplier) => updateProject({ supplier })} /><Field label="Cliente" value={data.project.customer} onChange={(customer) => updateProject({ customer })} /><Field label="Responsável" value={data.project.owner} onChange={(owner) => updateProject({ owner })} /><Field label="Data de referência" type="date" value={data.project.referenceDate} onChange={(referenceDate) => updateProject({ referenceDate })} /></section>
-          {view !== 'comparison' && <section className="sidebar-section"><div className="sidebar-heading"><span>02</span><h2>Premissas do cenário</h2></div><Field label="Demanda mensal" type="number" min={0} step={1} suffix="un/mês" value={activeScenario.monthlyDemand} onChange={(value) => updateScenario(activeScenario.id, { ...activeScenario, monthlyDemand: clampNumber(value) })} /><Field label="Dias úteis" type="number" min={1} step={1} suffix="dias/mês" value={activeScenario.workdaysPerMonth} onChange={(value) => updateScenario(activeScenario.id, { ...activeScenario, workdaysPerMonth: clampNumber(value, 1) })} /><Field label="Tempo disponível" type="number" min={1} step={1} suffix="min/dia" value={activeScenario.availableMinutesPerDay} onChange={(value) => updateScenario(activeScenario.id, { ...activeScenario, availableMinutesPerDay: clampNumber(value, 1) })} /><div className="formula-note"><CircleAlert size={15} /><p>O takt time é calculado pela divisão do tempo disponível pela demanda diária.</p></div></section>}
-          <section className="sidebar-section sidebar-guide"><div className="sidebar-heading"><span>03</span><h2>Como usar</h2></div><ol><li>Revise o Estado atual.</li><li>Copie para o Estado futuro.</li><li>Altere processos e estoques.</li><li>Compare os ganhos e gere o PDF.</li></ol></section>
-        </aside>
-        <div className="content">
-          <nav className="view-tabs"><button className={view === 'current' ? 'active' : ''} onClick={() => setView('current')}>Estado atual</button><button className={view === 'future' ? 'active' : ''} onClick={() => setView('future')}>Estado futuro</button><button className={view === 'comparison' ? 'active' : ''} onClick={() => setView('comparison')}>Comparativo</button><button className="copy-action" onClick={copyCurrentToFuture}><Copy size={15} />Copiar atual para futuro</button></nav>
-          {view === 'comparison' ? <Comparison current={data.current} future={data.future} currentResults={currentResults} futureResults={futureResults} /> : <FlowMap project={data.project} scenario={activeScenario} results={activeResults} onScenarioChange={(scenario) => updateScenario(activeScenario.id, scenario)} />}
-          <section className="calculation-note">{activeResults.meetsDemand ? <CheckCircle2 size={18} /> : <CircleAlert size={18} />}<p><strong>Leitura do cenário:</strong> a capacidade considera tempo de ciclo, setup por lote, disponibilidade e quantidade de operadores. O lead time soma estoque em dias e tempo de processamento.</p></section>
+    <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      <aside className="app-sidebar no-print">
+        <div className="sidebar-brand"><div className="app-symbol"><Route size={20} /></div><div className="sidebar-brand-text"><strong>MFV</strong><span>Simulador</span></div><button className="collapse-button" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? 'Expandir barra lateral' : 'Recolher barra lateral'}>{sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
+        <nav className="sidebar-nav">
+          <button className={view === 'current' ? 'active' : ''} onClick={() => selectView('current')} title="Estado atual"><Map size={19} /><span>Estado atual</span></button>
+          <button className={view === 'future' ? 'active' : ''} onClick={() => selectView('future')} title="Estado futuro"><Route size={19} /><span>Estado futuro</span></button>
+          <button className={view === 'comparison' ? 'active' : ''} onClick={() => selectView('comparison')} title="Comparativo"><GitCompareArrows size={19} /><span>Comparativo</span></button>
+        </nav>
+        <div className="sidebar-section-label"><span>Dados</span></div>
+        <nav className="sidebar-nav secondary">
+          <button onClick={() => openEditor('project')} title="Identificação"><FilePenLine size={19} /><span>Identificação</span></button>
+          <button onClick={() => openEditor('scenario')} title="Premissas"><Settings2 size={19} /><span>Premissas</span></button>
+          <button onClick={() => openEditor('processes')} title="Processos"><Factory size={19} /><span>Processos</span></button>
+        </nav>
+        <div className="sidebar-bottom"><div className="save-state"><Save size={15} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div><button onClick={resetAll} title="Restaurar dados"><RotateCcw size={17} /><span>Restaurar</span></button></div>
+      </aside>
+
+      <main className="app-main no-print">
+        <header className="app-header">
+          <div><ScenarioPill kind={activeKind} /><h1>{view === 'comparison' ? 'Comparativo' : activeScenario.name}</h1><p>{data.project.family || 'Família não informada'} <span>·</span> {data.project.product || 'Produto não informado'}</p></div>
+          <div className="header-actions">
+            {view === 'current' && <button className="quiet-button" onClick={copyCurrentToFuture}><Copy size={17} />Copiar para futuro</button>}
+            <button className="quiet-button" onClick={() => openEditor(view === 'comparison' ? 'project' : 'processes')}><FilePenLine size={17} />Editar dados</button>
+            <button className="primary-button" onClick={() => window.print()}><Printer size={17} />Imprimir MFV</button>
+          </div>
+        </header>
+
+        <div className="app-content">
+          {view === 'comparison' ? (
+            <Comparison current={data.current} future={data.future} currentResults={currentResults} futureResults={futureResults} />
+          ) : (
+            <>
+              <MetricsStrip results={activeResults} />
+              <section className="map-stage">
+                <div className="stage-toolbar"><div><span>MFV convencional</span><strong>{activeScenario.name}</strong></div><button onClick={() => openEditor('processes')}><FilePenLine size={15} />Editar processos</button></div>
+                <div className="map-viewport"><MfvDiagram project={data.project} scenario={activeScenario} results={activeResults} /></div>
+              </section>
+            </>
+          )}
         </div>
       </main>
-      <div className="print-report"><PrintScenario project={data.project} scenario={data.current} results={currentResults} /><PrintScenario project={data.project} scenario={data.future} results={futureResults} /><section className="print-page print-comparison"><Comparison current={data.current} future={data.future} currentResults={currentResults} futureResults={futureResults} /></section></div>
+
+      {editorOpen && <DataEditor project={data.project} scenario={activeScenario} tab={editorTab} onTab={setEditorTab} onProjectChange={updateProject} onScenarioChange={(scenario) => updateScenario(activeKind, scenario)} onClose={() => setEditorOpen(false)} />}
+
+      <div className="print-only"><MfvDiagram project={data.project} scenario={activeScenario} results={activeResults} print /></div>
     </div>
   );
 }
