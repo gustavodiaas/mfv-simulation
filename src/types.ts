@@ -1,55 +1,54 @@
-export type StepCategory = 'supplier' | 'process' | 'shipping' | 'customer';
+export type ScenarioKind = 'current' | 'future';
 
 export interface ProcessStep {
   id: string;
   name: string;
-  category: StepCategory;
-  /** Tempo de Ciclo em segundos */
-  cycleTime: number;
-  /** Tempo de Setup em segundos */
-  setupTime: number;
-  /** Estoque Intermediário em unidades */
-  wip: number;
+  cycleTimeSec: number;
+  setupTimeMin: number;
+  batchSize: number;
+  operators: number;
+  availabilityPercent: number;
+  wipUnits: number;
 }
 
-export interface SimulationState {
+export interface ProjectInfo {
+  area: string;
+  family: string;
+  product: string;
+  supplier: string;
+  customer: string;
+  owner: string;
+  referenceDate: string;
+}
+
+export interface Scenario {
+  id: ScenarioKind;
+  name: string;
+  monthlyDemand: number;
+  workdaysPerMonth: number;
+  availableMinutesPerDay: number;
   steps: ProcessStep[];
-  /** Demanda do Cliente em unidades por turno */
-  customerDemand: number;
-  /** Tempo Disponível em segundos por turno */
-  availableTime: number;
 }
 
 export interface StepMetrics {
-  id: string;
-  /** Capacidade da etapa = tempo disponível / (TC + TRF/100) */
-  capacity: number;
-  /** Razão entre TC da etapa e Takt Time */
+  effectiveCycleTimeSec: number;
+  capacityPerDay: number;
   taktRatio: number;
-  /** Diferença entre TC e Takt Time (positivo = acima do takt) */
-  taktGap: number;
+  inventoryDays: number;
   isBottleneck: boolean;
+  isOverTakt: boolean;
 }
 
 export interface SimulationResults {
-  /** Takt Time = Tempo Disponível / Demanda */
-  taktTime: number;
-  /** Capacidade da linha = menor capacidade entre todas as etapas */
-  lineCapacity: number;
-  /** Tempo total de atravessamento (soma de TC + WIP * Takt) */
-  leadTime: number;
-  /** Índice de balanceamento = TC médio / TC do gargalo */
+  dailyDemand: number;
+  taktTimeSec: number;
+  capacityPerDay: number;
+  leadTimeDays: number;
+  inventoryLeadTimeDays: number;
+  processingTimeMin: number;
   lineBalance: number;
-  /** ID da etapa gargalo */
+  totalWip: number;
   bottleneckId: string;
-  /** Métricas por etapa */
-  stepMetrics: Record<string, StepMetrics>;
-  /** A linha atende a demanda? */
   meetsDemand: boolean;
-}
-
-export interface Recommendation {
-  title: string;
-  description: string;
-  icon: string;
+  stepMetrics: Record<string, StepMetrics>;
 }

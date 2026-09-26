@@ -1,264 +1,305 @@
-import { useCallback, useMemo, useState } from 'react';
-import ReactFlow, {
-  Background,
-  Controls,
-  type Edge,
-  type Node,
-  type NodeTypes,
-  Position,
-} from 'reactflow';
-import 'reactflow/dist/style.css';
-import { RotateCcw, Users, Clock4, Zap, Activity } from 'lucide-react';
-import StepNode from './components/StepNode';
-import InsightsPanel from './components/InsightsPanel';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  DEFAULT_STEPS,
-  DEFAULT_DEMAND,
-  DEFAULT_AVAILABLE_TIME,
+  ArrowDown,
+  ArrowRight,
+  BarChart3,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  CircleAlert,
+  Copy,
+  Factory,
+  FileDown,
+  PackageOpen,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+  Truck,
+  UserRound,
+} from 'lucide-react';
+import {
+  cloneAsFuture,
+  createDefaultScenario,
+  DEFAULT_PROJECT,
+  newStep,
   simulate,
-  getRecommendations,
 } from './simulation';
-import type { ProcessStep } from './types';
+import type { ProcessStep, ProjectInfo, Scenario, ScenarioKind, SimulationResults } from './types';
 
-const nodeTypes: NodeTypes = { stepNode: StepNode };
+type AppData = { project: ProjectInfo; current: Scenario; future: Scenario };
+type View = ScenarioKind | 'comparison';
 
-const nodePositions: Record<string, { x: number; y: number }> = {
-  supplier: { x: 0, y: 200 },
-  cutting: { x: 320, y: 200 },
-  assembly: { x: 640, y: 200 },
-  inspection: { x: 960, y: 200 },
-  shipping: { x: 1280, y: 200 },
-  customer: { x: 1600, y: 200 },
-};
+const STORAGE_KEY = 'mfv-simulation:v2';
 
-function formatTime(seconds: number): string {
-  if (seconds === Infinity) return '∞';
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const min = Math.floor(seconds / 60);
-  const sec = Math.round(seconds % 60);
-  return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
+function initialData(): AppData {
+  const current = createDefaultScenario('current');
+  return { project: DEFAULT_PROJECT, current, future: cloneAsFuture(current) };
 }
 
-function formatAvailableTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
+function loadData(): AppData {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? (JSON.parse(stored) as AppData) : initialData();
+  } catch {
+    return initialData();
+  }
+}
+
+function formatNumber(value: number, maximumFractionDigits = 1): string {
+  if (!Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits }).format(value);
+}
+
+function formatSeconds(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  return value < 60 ? `${formatNumber(value, 1)} s` : `${formatNumber(value / 60, 1)} min`;
+}
+
+function formatDate(value: string): string {
+  if (!value) return '—';
+  const [year, month, day] = value.split('-');
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}
+
+function clampNumber(value: string, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
+}
+
+function deltaPercent(current: number, future: number, inverse = false): number | null {
+  if (!Number.isFinite(current) || current === 0 || !Number.isFinite(future)) return null;
+  const delta = ((future - current) / current) * 100;
+  const adjusted = inverse ? -delta : delta;
+  return Math.abs(adjusted) < 0.0001 ? 0 : adjusted;
+}
+
+function Field({ label, value, onChange, type = 'text', suffix, min, max, step }: {
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  type?: 'text' | 'number' | 'date';
+  suffix?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+}) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <div className="field-control">
+        <input type={type} value={value} min={min} max={max} step={step} onChange={(event) => onChange(event.target.value)} />
+        {suffix && <small>{suffix}</small>}
+      </div>
+    </label>
+  );
+}
+
+function MetricCard({ label, value, detail, tone = 'blue' }: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: 'blue' | 'green' | 'amber' | 'red';
+}) {
+  return (
+    <div className={`metric-card metric-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function ProcessCard({ step, metrics, index, total, onChange, onMove, onRemove }: {
+  step: ProcessStep;
+  metrics: SimulationResults['stepMetrics'][string];
+  index: number;
+  total: number;
+  onChange: (patch: Partial<ProcessStep>) => void;
+  onMove: (direction: -1 | 1) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <article className={`process-card ${metrics.isBottleneck ? 'is-bottleneck' : ''}`}>
+      <div className="process-card-head">
+        <div className="process-index">{String(index + 1).padStart(2, '0')}</div>
+        <input className="process-name" aria-label={`Nome do processo ${index + 1}`} value={step.name} onChange={(event) => onChange({ name: event.target.value })} />
+        {metrics.isBottleneck && <span className="bottleneck-tag">Gargalo</span>}
+      </div>
+      <div className="process-fields">
+        <Field label="Tempo de ciclo" type="number" min={0} step={1} suffix="s" value={step.cycleTimeSec} onChange={(value) => onChange({ cycleTimeSec: clampNumber(value) })} />
+        <Field label="Setup" type="number" min={0} step={1} suffix="min" value={step.setupTimeMin} onChange={(value) => onChange({ setupTimeMin: clampNumber(value) })} />
+        <Field label="Lote" type="number" min={1} step={1} suffix="un" value={step.batchSize} onChange={(value) => onChange({ batchSize: clampNumber(value, 1) })} />
+        <Field label="Operadores" type="number" min={1} step={1} suffix="pess." value={step.operators} onChange={(value) => onChange({ operators: clampNumber(value, 1) })} />
+        <Field label="Disponibilidade" type="number" min={1} max={100} step={1} suffix="%" value={step.availabilityPercent} onChange={(value) => onChange({ availabilityPercent: Math.min(100, clampNumber(value, 100)) })} />
+        <Field label="Estoque após processo" type="number" min={0} step={1} suffix="un" value={step.wipUnits} onChange={(value) => onChange({ wipUnits: clampNumber(value) })} />
+      </div>
+      <div className="process-card-foot">
+        <div><span>Capacidade</span><strong>{formatNumber(metrics.capacityPerDay, 1)} un/dia</strong></div>
+        <div><span>Estoque</span><strong>{formatNumber(metrics.inventoryDays, 2)} dias</strong></div>
+        <div className="card-actions">
+          <button onClick={() => onMove(-1)} disabled={index === 0} aria-label="Mover processo para a esquerda"><ChevronUp size={15} /></button>
+          <button onClick={() => onMove(1)} disabled={index === total - 1} aria-label="Mover processo para a direita"><ChevronDown size={15} /></button>
+          <button className="danger" onClick={onRemove} disabled={total <= 1} aria-label="Excluir processo"><Trash2 size={15} /></button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function FlowMap({ project, scenario, results, onScenarioChange }: {
+  project: ProjectInfo;
+  scenario: Scenario;
+  results: SimulationResults;
+  onScenarioChange: (scenario: Scenario) => void;
+}) {
+  const updateStep = (id: string, patch: Partial<ProcessStep>) => {
+    onScenarioChange({ ...scenario, steps: scenario.steps.map((step) => step.id === id ? { ...step, ...patch } : step) });
+  };
+
+  const moveStep = (index: number, direction: -1 | 1) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= scenario.steps.length) return;
+    const steps = [...scenario.steps];
+    [steps[index], steps[nextIndex]] = [steps[nextIndex], steps[index]];
+    onScenarioChange({ ...scenario, steps });
+  };
+
+  const removeStep = (id: string) => {
+    if (scenario.steps.length <= 1) return;
+    onScenarioChange({ ...scenario, steps: scenario.steps.filter((step) => step.id !== id) });
+  };
+
+  return (
+    <>
+      <section className="metrics-grid">
+        <MetricCard label="Takt time" value={formatSeconds(results.taktTimeSec)} detail={`${formatNumber(results.dailyDemand, 2)} un/dia`} />
+        <MetricCard label="Capacidade da linha" value={`${formatNumber(results.capacityPerDay, 1)} un/dia`} detail={results.meetsDemand ? 'Atende à demanda' : 'Abaixo da demanda'} tone={results.meetsDemand ? 'green' : 'red'} />
+        <MetricCard label="Lead time" value={`${formatNumber(results.leadTimeDays, 2)} dias`} detail={`${formatNumber(results.totalWip, 0)} unidades em estoque`} tone="amber" />
+        <MetricCard label="Balanceamento" value={`${formatNumber(results.lineBalance * 100, 0)}%`} detail={`${formatNumber(results.processingTimeMin, 1)} min de processamento`} tone={results.lineBalance >= 0.8 ? 'green' : 'amber'} />
+      </section>
+
+      <section className="map-shell">
+        <div className="section-title-row">
+          <div><span className="eyebrow">Mapa do fluxo</span><h2>{scenario.name}</h2></div>
+          <p>{project.family || 'Família não informada'} · {project.product || 'Produto não informado'}</p>
+        </div>
+        <div className="information-flow">
+          <div className="endpoint"><Truck size={18} /><span>{project.supplier || 'Fornecedor'}</span></div>
+          <div className="info-line"><span>Fluxo de informação e programação</span><ArrowRight size={18} /></div>
+          <div className="planning-box"><Factory size={18} /><span>Planejamento</span><strong>{formatNumber(scenario.monthlyDemand, 0)} un/mês</strong></div>
+          <div className="info-line"><ArrowRight size={18} /><span>Demanda</span></div>
+          <div className="endpoint"><UserRound size={18} /><span>{project.customer || 'Cliente final'}</span></div>
+        </div>
+        <div className="flow-scroll">
+          <div className="flow-row">
+            <div className="material-endpoint"><PackageOpen size={22} /><span>Matéria-prima</span></div>
+            {scenario.steps.map((step, index) => (
+              <div className="flow-segment" key={step.id}>
+                <ArrowRight className="material-arrow" size={26} />
+                <ProcessCard step={step} metrics={results.stepMetrics[step.id]} index={index} total={scenario.steps.length} onChange={(patch) => updateStep(step.id, patch)} onMove={(direction) => moveStep(index, direction)} onRemove={() => removeStep(step.id)} />
+                <div className="inventory-marker" title="Estoque após o processo"><span className="triangle" /><strong>{formatNumber(step.wipUnits, 0)} un</strong><small>{formatNumber(results.stepMetrics[step.id].inventoryDays, 2)} dias</small></div>
+              </div>
+            ))}
+            <ArrowRight className="material-arrow" size={26} />
+            <div className="material-endpoint customer"><Truck size={22} /><span>Expedição</span></div>
+          </div>
+        </div>
+        <button className="add-process" onClick={() => onScenarioChange({ ...scenario, steps: [...scenario.steps, newStep(scenario.id, scenario.steps.length + 1)] })}><Plus size={16} />Adicionar processo</button>
+        <div className="timeline">
+          <div><span>Tempo em estoque</span><strong>{formatNumber(results.inventoryLeadTimeDays, 2)} dias</strong></div><ArrowDown size={16} />
+          <div><span>Tempo de processamento</span><strong>{formatNumber(results.processingTimeMin, 1)} min</strong></div><ArrowDown size={16} />
+          <div className="timeline-total"><span>Lead time total</span><strong>{formatNumber(results.leadTimeDays, 2)} dias</strong></div>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function Comparison({ current, future, currentResults, futureResults }: {
+  current: Scenario;
+  future: Scenario;
+  currentResults: SimulationResults;
+  futureResults: SimulationResults;
+}) {
+  const metrics = [
+    { label: 'Capacidade da linha', current: currentResults.capacityPerDay, future: futureResults.capacityPerDay, suffix: ' un/dia', inverse: false },
+    { label: 'Lead time', current: currentResults.leadTimeDays, future: futureResults.leadTimeDays, suffix: ' dias', inverse: true },
+    { label: 'Estoque total', current: currentResults.totalWip, future: futureResults.totalWip, suffix: ' un', inverse: true },
+    { label: 'Tempo de processamento', current: currentResults.processingTimeMin, future: futureResults.processingTimeMin, suffix: ' min', inverse: true },
+    { label: 'Balanceamento', current: currentResults.lineBalance * 100, future: futureResults.lineBalance * 100, suffix: '%', inverse: false },
+  ];
+  return (
+    <section className="comparison-shell">
+      <div className="section-title-row"><div><span className="eyebrow">Estado atual x Estado futuro</span><h2>Comparativo de cenários</h2></div><p>Os ganhos são calculados com as mesmas regras nos dois cenários.</p></div>
+      <div className="comparison-grid">
+        {metrics.map((metric) => {
+          const delta = deltaPercent(metric.current, metric.future, metric.inverse);
+          const positive = delta !== null && delta >= 0;
+          return <article className="comparison-card" key={metric.label}><span>{metric.label}</span><div className="comparison-values"><div><small>Atual</small><strong>{formatNumber(metric.current, metric.suffix === '%' ? 0 : 1)}{metric.suffix}</strong></div><ArrowRight size={18} /><div><small>Futuro</small><strong>{formatNumber(metric.future, metric.suffix === '%' ? 0 : 1)}{metric.suffix}</strong></div></div><div className={`delta ${delta === null ? 'neutral' : positive ? 'positive' : 'negative'}`}>{delta === null ? 'Sem base para comparação' : `${delta >= 0 ? '+' : ''}${formatNumber(delta, 1)}% de ganho`}</div></article>;
+        })}
+      </div>
+      <div className="comparison-table-wrap"><table className="comparison-table"><thead><tr><th>Processo</th><th>TC atual</th><th>TC futuro</th><th>Estoque atual</th><th>Estoque futuro</th><th>Variação do TC</th></tr></thead><tbody>
+        {Array.from({ length: Math.max(current.steps.length, future.steps.length) }, (_, index) => {
+          const currentStep = current.steps[index];
+          const futureStep = future.steps[index];
+          const delta = currentStep && futureStep ? deltaPercent(currentStep.cycleTimeSec, futureStep.cycleTimeSec, true) : null;
+          return <tr key={`${currentStep?.id ?? 'none'}-${futureStep?.id ?? 'none'}`}><td>{futureStep?.name || currentStep?.name || '—'}</td><td>{currentStep ? formatSeconds(currentStep.cycleTimeSec) : '—'}</td><td>{futureStep ? formatSeconds(futureStep.cycleTimeSec) : '—'}</td><td>{currentStep ? `${formatNumber(currentStep.wipUnits, 0)} un` : '—'}</td><td>{futureStep ? `${formatNumber(futureStep.wipUnits, 0)} un` : '—'}</td><td>{delta === null ? '—' : `${delta >= 0 ? '+' : ''}${formatNumber(delta, 1)}%`}</td></tr>;
+        })}
+      </tbody></table></div>
+    </section>
+  );
+}
+
+function PrintScenario({ project, scenario, results }: { project: ProjectInfo; scenario: Scenario; results: SimulationResults }) {
+  return (
+    <section className="print-page">
+      <header className="print-header"><div><span>MFV convencional</span><h1>{scenario.name}</h1></div><div><strong>{project.family || 'Família não informada'}</strong><span>{project.product || 'Produto não informado'}</span></div></header>
+      <div className="print-meta"><span>Área: <strong>{project.area || '—'}</strong></span><span>Responsável: <strong>{project.owner || '—'}</strong></span><span>Referência: <strong>{formatDate(project.referenceDate)}</strong></span></div>
+      <div className="print-kpis"><div><span>Demanda</span><strong>{formatNumber(scenario.monthlyDemand, 0)} un/mês</strong></div><div><span>Takt time</span><strong>{formatSeconds(results.taktTimeSec)}</strong></div><div><span>Capacidade</span><strong>{formatNumber(results.capacityPerDay, 1)} un/dia</strong></div><div><span>Lead time</span><strong>{formatNumber(results.leadTimeDays, 2)} dias</strong></div></div>
+      <div className="print-flow"><div className="print-endpoint">{project.supplier || 'Fornecedor'}</div>{scenario.steps.map((step) => <div className="print-step-wrap" key={step.id}><ArrowRight size={16} /><div className={`print-step ${results.stepMetrics[step.id].isBottleneck ? 'is-bottleneck' : ''}`}><strong>{step.name}</strong><span>TC: {formatSeconds(step.cycleTimeSec)}</span><span>Setup: {formatNumber(step.setupTimeMin, 1)} min</span><span>Operadores: {formatNumber(step.operators, 0)}</span><span>Disponibilidade: {formatNumber(step.availabilityPercent, 0)}%</span><span>Estoque: {formatNumber(step.wipUnits, 0)} un</span></div></div>)}<ArrowRight size={16} /><div className="print-endpoint">{project.customer || 'Cliente final'}</div></div>
+      <table className="print-table"><thead><tr><th>Processo</th><th>TC</th><th>TC efetivo</th><th>Capacidade/dia</th><th>Estoque</th><th>Estoque em dias</th></tr></thead><tbody>{scenario.steps.map((step) => <tr key={step.id}><td>{step.name}</td><td>{formatSeconds(step.cycleTimeSec)}</td><td>{formatSeconds(results.stepMetrics[step.id].effectiveCycleTimeSec)}</td><td>{formatNumber(results.stepMetrics[step.id].capacityPerDay, 1)}</td><td>{formatNumber(step.wipUnits, 0)}</td><td>{formatNumber(results.stepMetrics[step.id].inventoryDays, 2)}</td></tr>)}</tbody></table>
+      <footer className="print-footer"><span>Tempo de processamento: {formatNumber(results.processingTimeMin, 1)} min</span><strong>Lead time total: {formatNumber(results.leadTimeDays, 2)} dias</strong></footer>
+    </section>
+  );
 }
 
 function App() {
-  const [steps, setSteps] = useState<ProcessStep[]>(DEFAULT_STEPS);
-  const [customerDemand, setCustomerDemand] = useState(DEFAULT_DEMAND);
-  const [availableTime, setAvailableTime] = useState(DEFAULT_AVAILABLE_TIME);
+  const [data, setData] = useState<AppData>(() => loadData());
+  const [view, setView] = useState<View>('current');
+  const [saved, setSaved] = useState(true);
+  const currentResults = simulate(data.current);
+  const futureResults = simulate(data.future);
 
-  const results = useMemo(
-    () => simulate(steps, customerDemand, availableTime),
-    [steps, customerDemand, availableTime]
-  );
+  useEffect(() => {
+    setSaved(false);
+    const timer = window.setTimeout(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); setSaved(true); }, 350);
+    return () => window.clearTimeout(timer);
+  }, [data]);
 
-  const bottleneck = useMemo(
-    () => steps.find((s) => s.id === results.bottleneckId),
-    [steps, results.bottleneckId]
-  );
-
-  const recommendations = useMemo(
-    () => getRecommendations(bottleneck, results),
-    [bottleneck, results]
-  );
-
-  const handleCycleTimeChange = useCallback((id: string, value: number) => {
-    setSteps((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, cycleTime: value } : s))
-    );
-  }, []);
-
-  const handleWipChange = useCallback((id: string, value: number) => {
-    setSteps((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, wip: value } : s))
-    );
-  }, []);
-
-  const handleSetupTimeChange = useCallback((id: string, value: number) => {
-    setSteps((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, setupTime: value } : s))
-    );
-  }, []);
-
-  const handleReset = useCallback(() => {
-    setSteps(DEFAULT_STEPS);
-    setCustomerDemand(DEFAULT_DEMAND);
-    setAvailableTime(DEFAULT_AVAILABLE_TIME);
-  }, []);
-
-  const nodes: Node[] = useMemo(
-    () =>
-      steps.map((step) => ({
-        id: step.id,
-        type: 'stepNode',
-        position: nodePositions[step.id] ?? { x: 0, y: 0 },
-        data: {
-          step,
-          metrics: results.stepMetrics[step.id],
-          taktTime: results.taktTime,
-          onCycleTimeChange: handleCycleTimeChange,
-          onWipChange: handleWipChange,
-          onSetupTimeChange: handleSetupTimeChange,
-        },
-        draggable: false,
-        targetPosition: Position.Left,
-        sourcePosition: Position.Right,
-      })),
-    [steps, results, handleCycleTimeChange, handleWipChange, handleSetupTimeChange]
-  );
-
-  const edges: Edge[] = useMemo(() => {
-    const edgeList: Edge[] = [];
-    for (let i = 0; i < steps.length - 1; i++) {
-      const source = steps[i];
-      const target = steps[i + 1];
-      const wip = target.wip;
-      const isBottleneckEdge =
-        source.id === results.bottleneckId || target.id === results.bottleneckId;
-
-      edgeList.push({
-        id: `e-${source.id}-${target.id}`,
-        source: source.id,
-        target: target.id,
-        type: 'smoothstep',
-        animated: isBottleneckEdge,
-        style: {
-          stroke: isBottleneckEdge ? '#f59e0b' : '#475569',
-          strokeWidth: wip > 200 ? 4 : wip > 100 ? 3 : 2,
-          opacity: 0.8,
-        },
-      });
-    }
-    return edgeList;
-  }, [steps, results.bottleneckId]);
+  const updateProject = useCallback((patch: Partial<ProjectInfo>) => setData((previous) => ({ ...previous, project: { ...previous.project, ...patch } })), []);
+  const updateScenario = useCallback((kind: ScenarioKind, scenario: Scenario) => setData((previous) => ({ ...previous, [kind]: scenario })), []);
+  const resetAll = () => { if (window.confirm('Restaurar o modelo inicial? As alterações salvas neste navegador serão substituídas.')) { setData(initialData()); setView('current'); } };
+  const copyCurrentToFuture = () => { setData((previous) => ({ ...previous, future: cloneAsFuture(previous.current) })); setView('future'); };
+  const activeScenario = view === 'future' ? data.future : data.current;
+  const activeResults = view === 'future' ? futureResults : currentResults;
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden">
-      {/* Top Bar */}
-      <header className="flex-shrink-0 border-b border-slate-800 bg-slate-900/60 backdrop-blur-md px-6 py-3">
-        <div className="flex items-center gap-6">
-          {/* Logo */}
-          <div className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 shadow-lg shadow-amber-500/20">
-              <Activity size={20} className="text-slate-950" />
-            </div>
-            <div>
-              <h1 className="text-sm font-bold tracking-tight">Simulador MFV</h1>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider">
-                Mapeamento de Fluxo de Valor
-              </p>
-            </div>
-          </div>
-
-          {/* Global Controls */}
-          <div className="flex items-center gap-6 ml-4">
-            {/* Customer Demand */}
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase tracking-wider">
-                <Users size={12} />
-                Demanda
-              </div>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={50}
-                  max={1000}
-                  step={50}
-                  value={customerDemand}
-                  onChange={(e) => setCustomerDemand(Number(e.target.value))}
-                  className="w-32 h-1.5 rounded-full appearance-none cursor-pointer accent-sky-400 bg-slate-700"
-                />
-                <span className="text-sm font-mono font-bold text-sky-400 w-16">
-                  {customerDemand} un
-                </span>
-              </div>
-            </div>
-
-            {/* Available Time */}
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase tracking-wider">
-                <Clock4 size={12} />
-                Tempo Disponível
-              </div>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={14400}
-                  max={43200}
-                  step={1800}
-                  value={availableTime}
-                  onChange={(e) => setAvailableTime(Number(e.target.value))}
-                  className="w-32 h-1.5 rounded-full appearance-none cursor-pointer accent-sky-400 bg-slate-700"
-                />
-                <span className="text-sm font-mono font-bold text-sky-400 w-16">
-                  {formatAvailableTime(availableTime)}
-                </span>
-              </div>
-            </div>
-
-            {/* Takt Time Display */}
-            <div className="flex flex-col gap-1 px-4 py-2 rounded-xl bg-slate-800/50 border border-slate-700/50">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase tracking-wider">
-                <Zap size={12} className="text-amber-400" />
-                Takt Time
-              </div>
-              <span className="text-lg font-mono font-bold text-amber-400">
-                {formatTime(results.taktTime)}
-              </span>
-            </div>
-          </div>
-
-          {/* Reset */}
-          <button
-            onClick={handleReset}
-            className="ml-auto flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors border border-slate-700/50 hover:border-slate-600"
-          >
-            <RotateCcw size={14} />
-            Resetar
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Flow Canvas */}
-        <div className="flex-1 relative">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            fitView
-            fitViewOptions={{ padding: 0.15 }}
-            panOnDrag={false}
-            zoomOnScroll={true}
-            zoomOnDoubleClick={false}
-            panOnScroll={false}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            elementsSelectable={false}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background color="#1e293b" gap={24} size={1.5} />
-            <Controls
-              showInteractive={false}
-              className="!bg-slate-800/80 !border-slate-700 !rounded-lg [&_button]:!bg-slate-800 [&_button]:!border-slate-700 [&_button]:!text-slate-400 [&_button:hover]:!bg-slate-700"
-            />
-          </ReactFlow>
-        </div>
-
-        {/* Insights Panel */}
-        <aside className="w-[340px] flex-shrink-0 border-l border-slate-800 bg-slate-900/40 p-4 overflow-hidden">
-          <InsightsPanel
-            results={results}
-            steps={steps}
-            recommendations={recommendations}
-            bottleneck={bottleneck}
-          />
+    <div className="app-shell">
+      <header className="topbar no-print"><div className="brand"><div className="brand-mark"><BarChart3 size={22} /></div><div><span>Mapeamento de Fluxo de Valor</span><h1>Simulador MFV</h1></div></div><div className="header-actions"><span className={`save-status ${saved ? 'is-saved' : ''}`}><Save size={14} />{saved ? 'Salvo neste navegador' : 'Salvando…'}</span><button className="button button-secondary" onClick={resetAll}><RotateCcw size={16} />Restaurar</button><button className="button button-primary" onClick={() => window.print()}><FileDown size={16} />Imprimir / salvar PDF</button></div></header>
+      <main className="workspace no-print">
+        <aside className="sidebar">
+          <section className="sidebar-section"><div className="sidebar-heading"><span>01</span><h2>Identificação</h2></div><Field label="Área" value={data.project.area} onChange={(area) => updateProject({ area })} /><Field label="Família" value={data.project.family} onChange={(family) => updateProject({ family })} /><Field label="Produto" value={data.project.product} onChange={(product) => updateProject({ product })} /><Field label="Fornecedor" value={data.project.supplier} onChange={(supplier) => updateProject({ supplier })} /><Field label="Cliente" value={data.project.customer} onChange={(customer) => updateProject({ customer })} /><Field label="Responsável" value={data.project.owner} onChange={(owner) => updateProject({ owner })} /><Field label="Data de referência" type="date" value={data.project.referenceDate} onChange={(referenceDate) => updateProject({ referenceDate })} /></section>
+          {view !== 'comparison' && <section className="sidebar-section"><div className="sidebar-heading"><span>02</span><h2>Premissas do cenário</h2></div><Field label="Demanda mensal" type="number" min={0} step={1} suffix="un/mês" value={activeScenario.monthlyDemand} onChange={(value) => updateScenario(activeScenario.id, { ...activeScenario, monthlyDemand: clampNumber(value) })} /><Field label="Dias úteis" type="number" min={1} step={1} suffix="dias/mês" value={activeScenario.workdaysPerMonth} onChange={(value) => updateScenario(activeScenario.id, { ...activeScenario, workdaysPerMonth: clampNumber(value, 1) })} /><Field label="Tempo disponível" type="number" min={1} step={1} suffix="min/dia" value={activeScenario.availableMinutesPerDay} onChange={(value) => updateScenario(activeScenario.id, { ...activeScenario, availableMinutesPerDay: clampNumber(value, 1) })} /><div className="formula-note"><CircleAlert size={15} /><p>O takt time é calculado pela divisão do tempo disponível pela demanda diária.</p></div></section>}
+          <section className="sidebar-section sidebar-guide"><div className="sidebar-heading"><span>03</span><h2>Como usar</h2></div><ol><li>Revise o Estado atual.</li><li>Copie para o Estado futuro.</li><li>Altere processos e estoques.</li><li>Compare os ganhos e gere o PDF.</li></ol></section>
         </aside>
-      </div>
+        <div className="content">
+          <nav className="view-tabs"><button className={view === 'current' ? 'active' : ''} onClick={() => setView('current')}>Estado atual</button><button className={view === 'future' ? 'active' : ''} onClick={() => setView('future')}>Estado futuro</button><button className={view === 'comparison' ? 'active' : ''} onClick={() => setView('comparison')}>Comparativo</button><button className="copy-action" onClick={copyCurrentToFuture}><Copy size={15} />Copiar atual para futuro</button></nav>
+          {view === 'comparison' ? <Comparison current={data.current} future={data.future} currentResults={currentResults} futureResults={futureResults} /> : <FlowMap project={data.project} scenario={activeScenario} results={activeResults} onScenarioChange={(scenario) => updateScenario(activeScenario.id, scenario)} />}
+          <section className="calculation-note">{activeResults.meetsDemand ? <CheckCircle2 size={18} /> : <CircleAlert size={18} />}<p><strong>Leitura do cenário:</strong> a capacidade considera tempo de ciclo, setup por lote, disponibilidade e quantidade de operadores. O lead time soma estoque em dias e tempo de processamento.</p></section>
+        </div>
+      </main>
+      <div className="print-report"><PrintScenario project={data.project} scenario={data.current} results={currentResults} /><PrintScenario project={data.project} scenario={data.future} results={futureResults} /><section className="print-page print-comparison"><Comparison current={data.current} future={data.future} currentResults={currentResults} futureResults={futureResults} /></section></div>
     </div>
   );
 }
