@@ -320,10 +320,15 @@ button, input, select { font: inherit; cursor: pointer; }
    POPOVER EDIÇÃO INLINE
 ═══════════════════════════════════════ */
 .process-popover {
-  position: fixed; z-index: 200; width: 320px;
-  background: rgba(255,255,255,.97);
-  border: 1px solid rgba(0,0,0,.10); border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.18), 0 4px 16px rgba(0,0,0,.08);
+  position: fixed;
+  z-index: 9999;
+  width: 320px;
+  /* começa invisível até o JS posicionar */
+  top: -9999px; left: -9999px;
+  background: rgba(255,255,255,.98);
+  border: 1px solid rgba(0,0,0,.12);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.18), 0 4px 16px rgba(0,0,0,.1);
   overflow: hidden;
   animation: pop-in .15s cubic-bezier(.25,.46,.45,.94);
 }

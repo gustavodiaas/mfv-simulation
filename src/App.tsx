@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Activity,
   ArrowRight,
@@ -301,30 +302,56 @@ function ProcessPopover({ step, isLast, onUpdate, onDelete, onClose, anchorRef }
 }) {
   const popRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  const reposition = useCallback(() => {
     const pop = popRef.current;
     const anchor = anchorRef.current;
     if (!pop || !anchor) return;
     const rect = anchor.getBoundingClientRect();
     const popW = 320;
+    const popH = pop.offsetHeight;
+    const margin = 12;
     let left = rect.left + rect.width / 2 - popW / 2;
-    left = Math.max(12, Math.min(left, window.innerWidth - popW - 12));
+    left = Math.max(margin, Math.min(left, window.innerWidth - popW - margin));
+    // abre abaixo se couber, senão abre acima
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const top = spaceBelow >= popH || spaceBelow > rect.top
+      ? rect.bottom + 8
+      : rect.top - popH - 8;
     pop.style.left = `${left}px`;
-    pop.style.top = `${rect.bottom + 10}px`;
+    pop.style.top = `${Math.max(margin, top)}px`;
   }, [anchorRef]);
 
+  // posiciona na montagem e re-posiciona ao scroll/resize
+  useEffect(() => {
+    reposition();
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+    return () => {
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [reposition]);
+
+  // fecha ao clicar fora
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (popRef.current && !popRef.current.contains(e.target as Node) &&
-          anchorRef.current && !anchorRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      if (
+        popRef.current && !popRef.current.contains(e.target as Node) &&
+        anchorRef.current && !anchorRef.current.contains(e.target as Node)
+      ) onClose();
     };
     setTimeout(() => document.addEventListener('mousedown', handler), 0);
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose, anchorRef]);
 
-  return (
+  // fecha com Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return createPortal(
     <div className="process-popover" ref={popRef}>
       <div className="popover-header">
         <strong>Editar processo</strong>
@@ -389,7 +416,8 @@ function ProcessPopover({ step, isLast, onUpdate, onDelete, onClose, anchorRef }
       <div className="popover-footer">
         <button className="popover-delete" onClick={onDelete}><Trash2 size={13} />Excluir</button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
