@@ -8,10 +8,15 @@ import {
   ChevronUp,
   Clock3,
   Copy,
+  Download,
   Factory,
+  FileImage,
   FilePenLine,
+  FileText,
   Gauge,
   GitCompareArrows,
+  ImageDown,
+  Loader2,
   Map,
   PackageOpen,
   PanelLeftClose,
@@ -35,6 +40,7 @@ import {
   newStep,
   simulate,
 } from './simulation';
+import { exportJPEG, exportPDF, exportSVG } from './export';
 import type {
   FlowType,
   InfoFlowType,
@@ -48,6 +54,7 @@ import type {
 type AppData = { project: ProjectInfo; current: Scenario; future: Scenario };
 type View = ScenarioKind | 'comparison';
 type EditorTab = 'project' | 'scenario';
+type ExportFormat = 'pdf' | 'jpeg' | 'svg';
 
 const STORAGE_KEY = 'mfv-simulation:v4';
 
@@ -100,7 +107,7 @@ function deltaPercent(current: number, future: number, inverse = false): number 
   return Math.abs(adjusted) < 0.0001 ? 0 : adjusted;
 }
 
-// ─── SVG Symbols ────────────────────────────────────────────────────────────
+// ─── SVG Symbols ─────────────────────────────────────────────────────────────
 
 function PushArrow({ label }: { label?: string }) {
   return (
@@ -270,7 +277,7 @@ function ScenarioPill({ kind }: { kind: ScenarioKind }) {
   return <span className={`scenario-pill ${kind}`}>{kind === 'current' ? 'Estado atual' : 'Estado futuro'}</span>;
 }
 
-// ─── Popover de edição inline de processo ───────────────────────────────────
+// ─── Popover edição inline ───────────────────────────────────────────────────
 
 const FLOW_OPTIONS = [
   { value: 'push', label: 'Empurrado' },
@@ -287,16 +294,13 @@ const INFO_FLOW_OPTIONS = [
 ];
 
 function ProcessPopover({ step, isLast, onUpdate, onDelete, onClose, anchorRef }: {
-  step: ProcessStep;
-  isLast: boolean;
+  step: ProcessStep; isLast: boolean;
   onUpdate: (patch: Partial<ProcessStep>) => void;
-  onDelete: () => void;
-  onClose: () => void;
+  onDelete: () => void; onClose: () => void;
   anchorRef: React.RefObject<HTMLDivElement>;
 }) {
   const popRef = useRef<HTMLDivElement>(null);
 
-  // Posição: abaixo do anchor, centralizado
   useEffect(() => {
     const pop = popRef.current;
     const anchor = anchorRef.current;
@@ -304,14 +308,11 @@ function ProcessPopover({ step, isLast, onUpdate, onDelete, onClose, anchorRef }
     const rect = anchor.getBoundingClientRect();
     const popW = 320;
     let left = rect.left + rect.width / 2 - popW / 2;
-    // manter dentro da viewport
     left = Math.max(12, Math.min(left, window.innerWidth - popW - 12));
-    const top = rect.bottom + 10;
     pop.style.left = `${left}px`;
-    pop.style.top = `${top}px`;
+    pop.style.top = `${rect.bottom + 10}px`;
   }, [anchorRef]);
 
-  // Fechar ao clicar fora
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (popRef.current && !popRef.current.contains(e.target as Node) &&
@@ -329,12 +330,10 @@ function ProcessPopover({ step, isLast, onUpdate, onDelete, onClose, anchorRef }
         <strong>Editar processo</strong>
         <button className="popover-close" onClick={onClose}><X size={15} /></button>
       </div>
-
       <div className="popover-field">
         <label>Nome</label>
         <input value={step.name} onChange={(e) => onUpdate({ name: e.target.value })} />
       </div>
-
       <div className="popover-grid">
         <div className="popover-field">
           <label>Tempo de ciclo</label>
@@ -379,7 +378,6 @@ function ProcessPopover({ step, isLast, onUpdate, onDelete, onClose, anchorRef }
           </div>
         </div>
       </div>
-
       {!isLast && (
         <div className="popover-field" style={{ marginTop: 8 }}>
           <label>Fluxo após este processo</label>
@@ -388,7 +386,6 @@ function ProcessPopover({ step, isLast, onUpdate, onDelete, onClose, anchorRef }
           </select>
         </div>
       )}
-
       <div className="popover-footer">
         <button className="popover-delete" onClick={onDelete}><Trash2 size={13} />Excluir</button>
       </div>
@@ -396,29 +393,19 @@ function ProcessPopover({ step, isLast, onUpdate, onDelete, onClose, anchorRef }
   );
 }
 
-// ─── Caixa de processo com lápis inline ─────────────────────────────────────
+// ─── Process box ─────────────────────────────────────────────────────────────
 
 function ProcessBox({ step, metrics, index, isLast, onUpdate, onDelete }: {
-  step: ProcessStep;
-  metrics: SimulationResults['stepMetrics'][string];
-  index: number;
-  isLast: boolean;
+  step: ProcessStep; metrics: SimulationResults['stepMetrics'][string];
+  index: number; isLast: boolean;
   onUpdate: (patch: Partial<ProcessStep>) => void;
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
-
   return (
-    <div
-      className={`map-process ${metrics.isBottleneck ? 'bottleneck' : ''} ${metrics.isOverTakt ? 'over-takt' : ''} ${open ? 'editing' : ''}`}
-      ref={boxRef}
-    >
-      {/* Botão de edição */}
-      <button className="process-edit-btn" onClick={() => setOpen((v) => !v)} title="Editar processo">
-        <Pencil size={11} />
-      </button>
-
+    <div className={`map-process ${metrics.isBottleneck ? 'bottleneck' : ''} ${metrics.isOverTakt ? 'over-takt' : ''} ${open ? 'editing' : ''}`} ref={boxRef}>
+      <button className="process-edit-btn" onClick={() => setOpen((v) => !v)} title="Editar processo"><Pencil size={11} /></button>
       <div className="process-title">
         <span>{String(index + 1).padStart(2, '0')}</span>
         <strong>{step.name}</strong>
@@ -433,20 +420,16 @@ function ProcessBox({ step, metrics, index, isLast, onUpdate, onDelete }: {
           <dt>T/C vs Takt</dt>
           <dd>
             <div className="takt-bar-wrap">
-              <div className={`takt-bar ${metrics.isOverTakt ? 'over' : 'ok'}`}
-                style={{ width: `${Math.min(100, metrics.taktRatio * 100)}%` }} />
+              <div className={`takt-bar ${metrics.isOverTakt ? 'over' : 'ok'}`} style={{ width: `${Math.min(100, metrics.taktRatio * 100)}%` }} />
             </div>
             <span>{formatNumber(metrics.taktRatio * 100, 0)}%</span>
           </dd>
         </div>
       </dl>
-
       {metrics.isBottleneck && <span className="map-bottleneck">Gargalo</span>}
-
       {open && (
         <ProcessPopover
-          step={step}
-          isLast={isLast}
+          step={step} isLast={isLast}
           onUpdate={onUpdate}
           onDelete={() => { onDelete(); setOpen(false); }}
           onClose={() => setOpen(false)}
@@ -456,19 +439,6 @@ function ProcessBox({ step, metrics, index, isLast, onUpdate, onDelete }: {
     </div>
   );
 }
-
-// ─── Botão para adicionar nova operação ─────────────────────────────────────
-
-function AddStepButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button className="add-step-btn" onClick={onClick} title="Adicionar operação">
-      <Plus size={16} />
-      <span>Nova operação</span>
-    </button>
-  );
-}
-
-// ─── Símbolos de estoque e inventário ───────────────────────────────────────
 
 function InventorySymbol({ units, days }: { units: number; days: number }) {
   return (
@@ -480,16 +450,12 @@ function InventorySymbol({ units, days }: { units: number; days: number }) {
   );
 }
 
-// ─── Diagrama MFV ───────────────────────────────────────────────────────────
+// ─── Diagrama MFV ────────────────────────────────────────────────────────────
 
 function MfvDiagram({ project, scenario, results, print = false, onScenarioChange }: {
-  project: ProjectInfo;
-  scenario: Scenario;
-  results: SimulationResults;
-  print?: boolean;
-  onScenarioChange?: (s: Scenario) => void;
+  project: ProjectInfo; scenario: Scenario; results: SimulationResults;
+  print?: boolean; onScenarioChange?: (s: Scenario) => void;
 }) {
-  const width = Math.max(1480, 560 + scenario.steps.length * 230);
   const editable = !print && !!onScenarioChange;
 
   const updateStep = (id: string, patch: Partial<ProcessStep>) => {
@@ -505,13 +471,28 @@ function MfvDiagram({ project, scenario, results, print = false, onScenarioChang
     onScenarioChange({ ...scenario, steps: [...scenario.steps, newStep(scenario.id, scenario.steps.length + 1)] });
   };
 
+  const effPct = (results.processingTimeMin / (results.leadTimeDays * (scenario.availableMinutesPerDay || 558))) * 100;
+
   return (
-    <div className={`mfv-sheet ${print ? 'for-print' : ''}`} style={{ width }}>
+    <div className="mfv-sheet">
       {/* Cabeçalho */}
-      <div className="map-family-bar">
-        <span>Família de produto</span>
-        <strong>{project.family || 'Não informada'}</strong>
-        <small>{scenario.name}</small>
+      <div className="mfv-header-block">
+        <div className="mfv-header-left">
+          <div className="mfv-header-row"><span>Empresa / Área</span><strong>{project.area || '—'}</strong></div>
+          <div className="mfv-header-row"><span>Família de produto</span><strong>{project.family || '—'}</strong></div>
+          <div className="mfv-header-row"><span>Produto</span><strong>{project.product || '—'}</strong></div>
+        </div>
+        <div className="mfv-header-center">
+          <div className="mfv-title-block">
+            <strong>MAPEAMENTO DO FLUXO DE VALOR</strong>
+            <span className={`scenario-badge ${scenario.id}`}>{scenario.name.toUpperCase()}</span>
+          </div>
+        </div>
+        <div className="mfv-header-right">
+          <div className="mfv-header-row"><span>Responsável</span><strong>{project.owner || '—'}</strong></div>
+          <div className="mfv-header-row"><span>Data</span><strong>{formatDate(project.referenceDate)}</strong></div>
+          <div className="mfv-header-row"><span>Demanda</span><strong>{formatNumber(scenario.monthlyDemand, 0)} un/mês</strong></div>
+        </div>
       </div>
 
       {/* Linha de informação */}
@@ -519,18 +500,18 @@ function MfvDiagram({ project, scenario, results, print = false, onScenarioChang
         <div className="map-party supplier">
           <TruckSymbol direction="right" />
           <strong>{project.supplier || 'Fornecedor'}</strong>
-          <span className="party-freq">a cada {project.deliveryFrequencyDays ?? 1} dia(s)</span>
+          <span className="party-freq">Entrega a cada {project.deliveryFrequencyDays ?? 1} dia(s)</span>
         </div>
         <div className="info-flow-col">
-          <InfoFlowArrow type={scenario.infoSupplierFlow} label="Pedido" />
+          <InfoFlowArrow type={scenario.infoSupplierFlow} label="Pedido / Forecast" />
         </div>
         <div className="map-planning">
-          <div><Factory size={15} /><strong>Controle da produção</strong></div>
-          <span>Programação {scenario.infoShopFloorFlow === 'electronic' ? 'eletrônica' : 'manual'}</span>
+          <div className="planning-header"><Factory size={13} /><strong>Controle da produção</strong></div>
+          <div className="planning-mode">{scenario.infoShopFloorFlow === 'electronic' ? 'Programação eletrônica' : 'Programação manual'}</div>
           <dl>
             <div><dt>Demanda mensal</dt><dd>{formatNumber(scenario.monthlyDemand, 0)} un</dd></div>
             <div><dt>Demanda diária</dt><dd>{formatNumber(results.dailyDemand, 2)} un</dd></div>
-            <div><dt>Takt time</dt><dd>{formatSeconds(results.taktTimeSec)}</dd></div>
+            <div className="takt-highlight"><dt>Takt time</dt><dd>{formatSeconds(results.taktTimeSec)}</dd></div>
             <div><dt>Tempo disponível</dt><dd>{formatNumber(scenario.availableMinutesPerDay, 0)} min/dia</dd></div>
           </dl>
         </div>
@@ -538,13 +519,13 @@ function MfvDiagram({ project, scenario, results, print = false, onScenarioChang
           <InfoFlowArrow type={scenario.infoCustomerFlow} label="Previsão / Pedido" />
         </div>
         <div className="map-party customer">
-          <UserRound size={20} />
-          <strong>{project.customer || 'Cliente final'}</strong>
-          <span className="party-freq">a cada {project.shipmentFrequencyDays ?? 1} dia(s)</span>
+          <UserRound size={18} />
+          <strong>{project.customer || 'Cliente'}</strong>
+          <span className="party-freq">Expedição a cada {project.shipmentFrequencyDays ?? 1} dia(s)</span>
         </div>
       </div>
 
-      {/* Seta controle → chão */}
+      {/* Seta chão de fábrica */}
       <div className="map-shopfloor-info-row">
         <div className="shopfloor-info-arrow">
           <InfoFlowArrow type={scenario.infoShopFloorFlow}
@@ -555,22 +536,17 @@ function MfvDiagram({ project, scenario, results, print = false, onScenarioChang
       {/* Linha de material */}
       <div className="map-material-row">
         <div className="map-origin">
-          <PackageOpen size={22} />
-          <strong>Matéria-prima</strong>
-          <span>{project.area || 'Área'}</span>
+          <PackageOpen size={20} />
+          <strong>Mat. Prima</strong>
         </div>
-
         <PushArrow />
-
         {scenario.steps.map((step, index) => {
           const isLast = index === scenario.steps.length - 1;
           return (
             <div className="map-process-group" key={step.id}>
               <ProcessBox
-                step={step}
-                metrics={results.stepMetrics[step.id]}
-                index={index}
-                isLast={isLast}
+                step={step} metrics={results.stepMetrics[step.id]}
+                index={index} isLast={isLast}
                 onUpdate={(patch) => updateStep(step.id, patch)}
                 onDelete={() => deleteStep(step.id)}
               />
@@ -581,14 +557,13 @@ function MfvDiagram({ project, scenario, results, print = false, onScenarioChang
             </div>
           );
         })}
-
-        {/* Botão nova operação */}
         {editable && (
           <div className="add-step-wrapper">
-            <AddStepButton onClick={addStep} />
+            <button className="add-step-btn" onClick={addStep} title="Adicionar operação">
+              <Plus size={16} /><span>Nova operação</span>
+            </button>
           </div>
         )}
-
         <div className="map-shipping">
           <TruckSymbol direction="right" />
           <strong>Expedição</strong>
@@ -596,10 +571,10 @@ function MfvDiagram({ project, scenario, results, print = false, onScenarioChang
         </div>
       </div>
 
-      {/* Timeline */}
+      {/* Linha do tempo */}
       <div className="map-time-ladder">
         <div className="ladder-labels">
-          <span>Estoque (dias)</span>
+          <span>Estoque</span>
           <span>T/C</span>
         </div>
         <div className="ladder-track">
@@ -612,23 +587,15 @@ function MfvDiagram({ project, scenario, results, print = false, onScenarioChang
         </div>
         <div className="lead-summary">
           <div><span>Lead time total</span><strong>{formatNumber(results.leadTimeDays, 2)} dias</strong></div>
-          <div><span>Tempo processo</span><strong>{formatNumber(results.processingTimeMin, 1)} min</strong></div>
-          <div><span>Eficiência fluxo</span>
-            <strong>{formatNumber((results.processingTimeMin / (results.leadTimeDays * (scenario.availableMinutesPerDay || 558))) * 100, 1)}%</strong>
-          </div>
+          <div><span>Tempo de processo</span><strong>{formatNumber(results.processingTimeMin, 1)} min</strong></div>
+          <div className={effPct < 5 ? 'lead-alert' : ''}><span>Eficiência do fluxo</span><strong>{formatNumber(effPct, 1)}%</strong></div>
         </div>
-      </div>
-
-      <div className="map-footer-meta">
-        <span>Produto: <strong>{project.product || '—'}</strong></span>
-        <span>Responsável: <strong>{project.owner || '—'}</strong></span>
-        <span>Referência: <strong>{formatDate(project.referenceDate)}</strong></span>
       </div>
     </div>
   );
 }
 
-// ─── Metrics strip ──────────────────────────────────────────────────────────
+// ─── Metrics strip ────────────────────────────────────────────────────────────
 
 function MetricsStrip({ results, scenario }: { results: SimulationResults; scenario: Scenario }) {
   const effPct = (results.processingTimeMin / (results.leadTimeDays * (scenario.availableMinutesPerDay || 558))) * 100;
@@ -649,7 +616,7 @@ function MetricsStrip({ results, scenario }: { results: SimulationResults; scena
   );
 }
 
-// ─── Comparison ─────────────────────────────────────────────────────────────
+// ─── Comparison ──────────────────────────────────────────────────────────────
 
 function Comparison({ current, future, currentResults, futureResults }: {
   current: Scenario; future: Scenario;
@@ -661,6 +628,7 @@ function Comparison({ current, future, currentResults, futureResults }: {
     { label: 'Estoque total', current: currentResults.totalWip, future: futureResults.totalWip, suffix: ' un', inverse: true },
     { label: 'Processamento', current: currentResults.processingTimeMin, future: futureResults.processingTimeMin, suffix: ' min', inverse: true },
   ];
+  const flowLabels: Record<FlowType, string> = { push: 'Empurrado', pull: 'Puxado', fifo: 'FIFO', supermarket: 'Supermercado' };
   return (
     <section className="comparison-view">
       <div className="comparison-intro"><ScenarioPill kind="current" /><ArrowRight size={18} /><ScenarioPill kind="future" /></div>
@@ -683,7 +651,6 @@ function Comparison({ current, future, currentResults, futureResults }: {
           <tbody>{Array.from({ length: Math.max(current.steps.length, future.steps.length) }, (_, i) => {
             const before = current.steps[i];
             const after = future.steps[i];
-            const flowLabels: Record<FlowType, string> = { push: 'Empurrado', pull: 'Puxado', fifo: 'FIFO', supermarket: 'Supermercado' };
             return (
               <tr key={i}>
                 <td>{after?.name || before?.name || '—'}</td>
@@ -701,7 +668,7 @@ function Comparison({ current, future, currentResults, futureResults }: {
   );
 }
 
-// ─── Legenda ─────────────────────────────────────────────────────────────────
+// ─── Legenda ──────────────────────────────────────────────────────────────────
 
 function LegendPanel() {
   return (
@@ -712,10 +679,7 @@ function LegendPanel() {
         <div className="legend-item"><PullArrow /><span>Puxado</span></div>
         <div className="legend-item"><FifoArrow /><span>FIFO</span></div>
         <div className="legend-item"><SupermarketSymbol /><span>Supermercado</span></div>
-        <div className="legend-item">
-          <div className="map-inventory-mini"><div className="inventory-triangle-mini" /></div>
-          <span>Estoque</span>
-        </div>
+        <div className="legend-item"><div className="map-inventory-mini"><div className="inventory-triangle-mini" /></div><span>Estoque</span></div>
       </div>
       <div className="legend-section">
         <p className="legend-title">Fluxo de informação</p>
@@ -731,7 +695,69 @@ function LegendPanel() {
   );
 }
 
-// ─── Modal de dados gerais (projeto + premissas) ─────────────────────────────
+// ─── Modal exportação ─────────────────────────────────────────────────────────
+
+function ExportModal({ printRef, scenarioName, onClose }: {
+  printRef: React.RefObject<HTMLDivElement>;
+  scenarioName: string;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState<ExportFormat | null>(null);
+
+  const run = async (format: ExportFormat) => {
+    if (!printRef.current) return;
+    setLoading(format);
+    try {
+      const name = `MFV_${scenarioName.replace(/\s+/g, '_')}`;
+      if (format === 'pdf') await exportPDF(printRef.current, name);
+      else if (format === 'jpeg') await exportJPEG(printRef.current, name);
+      else await exportSVG(printRef.current, name);
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  const formats: { fmt: ExportFormat; icon: React.ReactNode; label: string; desc: string }[] = [
+    { fmt: 'pdf', icon: <FileText size={22} />, label: 'PDF', desc: 'A3 landscape · alta qualidade · ideal para impressão' },
+    { fmt: 'jpeg', icon: <FileImage size={22} />, label: 'JPEG', desc: 'Imagem rasterizada · compatível com qualquer app' },
+    { fmt: 'svg', icon: <ImageDown size={22} />, label: 'SVG', desc: 'Vetorial · escalável · editável no Illustrator / Figma' },
+  ];
+
+  return (
+    <div className="editor-overlay" role="dialog" aria-modal="true">
+      <button className="editor-backdrop" onClick={onClose} />
+      <section className="editor-window export-modal">
+        <header>
+          <div><Download size={20} /><h2>Exportar MFV</h2><p>Escolha o formato de saída.</p></div>
+          <button className="icon-button" onClick={onClose}><X size={20} /></button>
+        </header>
+        <div className="export-options">
+          {formats.map(({ fmt, icon, label, desc }) => (
+            <button key={fmt} className={`export-option ${loading === fmt ? 'loading' : ''}`} onClick={() => run(fmt)} disabled={!!loading}>
+              <div className="export-icon">{loading === fmt ? <Loader2 size={22} className="spin" /> : icon}</div>
+              <div>
+                <strong>{label}</strong>
+                <span>{desc}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+        <div className="export-hint">
+          <Printer size={13} />
+          <span>Para imprimir, use PDF e abra no leitor de PDF do sistema.</span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ─── Modal dados gerais ───────────────────────────────────────────────────────
 
 function DataEditor({ project, scenario, tab, onTab, onProjectChange, onScenarioChange, onClose }: {
   project: ProjectInfo; scenario: Scenario; tab: EditorTab;
@@ -777,11 +803,11 @@ function DataEditor({ project, scenario, tab, onTab, onProjectChange, onScenario
               <Field label="Demanda mensal" type="number" suffix="un/mês" value={scenario.monthlyDemand} onChange={(v) => onScenarioChange({ ...scenario, monthlyDemand: clampNumber(v) })} />
               <Field label="Dias úteis" type="number" suffix="dias/mês" value={scenario.workdaysPerMonth} onChange={(v) => onScenarioChange({ ...scenario, workdaysPerMonth: clampNumber(v, 1) })} />
               <Field label="Tempo disponível" type="number" suffix="min/dia" value={scenario.availableMinutesPerDay} onChange={(v) => onScenarioChange({ ...scenario, availableMinutesPerDay: clampNumber(v, 1) })} />
-              <div className="editor-explanation"><CheckCircle2 size={18} /><p>Essas três premissas alimentam a demanda diária e o takt time do mapa.</p></div>
+              <div className="editor-explanation"><CheckCircle2 size={18} /><p>Essas três premissas alimentam a demanda diária e o takt time.</p></div>
               <SelectField label="Info: fornecedor → controle" value={scenario.infoSupplierFlow} onChange={(v) => onScenarioChange({ ...scenario, infoSupplierFlow: v as InfoFlowType })} options={INFO_FLOW_OPTIONS} />
               <SelectField label="Info: controle → chão de fábrica" value={scenario.infoShopFloorFlow} onChange={(v) => onScenarioChange({ ...scenario, infoShopFloorFlow: v as InfoFlowType })} options={INFO_FLOW_OPTIONS} />
               <SelectField label="Info: cliente → controle" value={scenario.infoCustomerFlow} onChange={(v) => onScenarioChange({ ...scenario, infoCustomerFlow: v as InfoFlowType })} options={INFO_FLOW_OPTIONS} />
-              <div className="editor-explanation"><Zap size={18} /><p>Seta sólida = informação manual em papel. Seta tracejada com relâmpago = eletrônica (EDI, ERP).</p></div>
+              <div className="editor-explanation"><Zap size={18} /><p>Seta sólida = ordem manual em papel. Seta tracejada = eletrônica (EDI, ERP).</p></div>
             </div>
           )}
         </div>
@@ -791,7 +817,7 @@ function DataEditor({ project, scenario, tab, onTab, onProjectChange, onScenario
   );
 }
 
-// ─── App ─────────────────────────────────────────────────────────────────────
+// ─── App ──────────────────────────────────────────────────────────────────────
 
 function App() {
   const [data, setData] = useState<AppData>(() => loadData());
@@ -801,7 +827,11 @@ function App() {
   const [legendOpen, setLegendOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorTab, setEditorTab] = useState<EditorTab>('project');
+  const [exportOpen, setExportOpen] = useState(false);
   const [saved, setSaved] = useState(true);
+
+  // Ref para o elemento que será exportado
+  const printRef = useRef<HTMLDivElement>(null);
 
   const currentResults = simulate(data.current);
   const futureResults = simulate(data.future);
@@ -817,9 +847,8 @@ function App() {
 
   const updateProject = useCallback((patch: Partial<ProjectInfo>) =>
     setData((p) => ({ ...p, project: { ...p.project, ...patch } })), []);
-  const updateScenario = useCallback((kind: ScenarioKind, scenario: Scenario) =>
-    setData((p) => ({ ...p, [kind]: scenario })), []);
-
+  const updateScenario = useCallback((kind: ScenarioKind, s: Scenario) =>
+    setData((p) => ({ ...p, [kind]: s })), []);
   const selectView = (next: View) => { setView(next); if (next !== 'comparison') setLastScenario(next); };
   const resetAll = () => { if (window.confirm('Restaurar os dados originais do modelo?')) { setData(initialData()); setView('current'); setLastScenario('current'); } };
   const copyCurrentToFuture = () => {
@@ -858,7 +887,7 @@ function App() {
           <button onClick={() => { setEditorTab('project'); setEditorOpen(true); }} title="Identificação">
             <FilePenLine size={18} /><span>Identificação</span>
           </button>
-          <button onClick={() => { setEditorTab('scenario'); setEditorOpen(true); }} title="Premissas e fluxos de informação">
+          <button onClick={() => { setEditorTab('scenario'); setEditorOpen(true); }} title="Premissas">
             <Settings2 size={18} /><span>Premissas</span>
           </button>
         </nav>
@@ -874,9 +903,13 @@ function App() {
 
         <div className="sidebar-bottom">
           <div className="save-state"><Save size={14} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div>
-          <button onClick={() => window.print()} title="Imprimir MFV"><Printer size={17} /><span>Imprimir</span></button>
+          <button onClick={() => setExportOpen(true)} title="Exportar / Imprimir">
+            <Download size={17} /><span>Exportar</span>
+          </button>
           {view === 'current' && (
-            <button onClick={copyCurrentToFuture} title="Copiar para futuro"><Copy size={17} /><span>Copiar para futuro</span></button>
+            <button onClick={copyCurrentToFuture} title="Copiar para futuro">
+              <Copy size={17} /><span>Copiar para futuro</span>
+            </button>
           )}
           <button onClick={resetAll} title="Restaurar"><RotateCcw size={17} /><span>Restaurar</span></button>
         </div>
@@ -893,8 +926,8 @@ function App() {
             <button className="quiet-button" onClick={() => { setEditorTab('project'); setEditorOpen(true); }}>
               <FilePenLine size={17} />Configurar
             </button>
-            <button className="primary-button" onClick={() => window.print()}>
-              <Printer size={17} />Imprimir
+            <button className="primary-button" onClick={() => setExportOpen(true)}>
+              <Download size={17} />Exportar
             </button>
           </div>
         </header>
@@ -924,21 +957,35 @@ function App() {
         </div>
       </main>
 
+      {/* Elemento oculto usado como fonte para exportação */}
+      <div className="export-source" aria-hidden="true">
+        <div ref={printRef}>
+          <MfvDiagram
+            project={data.project}
+            scenario={activeScenario}
+            results={activeResults}
+            print
+          />
+        </div>
+      </div>
+
       {editorOpen && (
         <DataEditor
-          project={data.project}
-          scenario={activeScenario}
-          tab={editorTab}
-          onTab={setEditorTab}
+          project={data.project} scenario={activeScenario}
+          tab={editorTab} onTab={setEditorTab}
           onProjectChange={updateProject}
           onScenarioChange={(s) => updateScenario(activeKind, s)}
           onClose={() => setEditorOpen(false)}
         />
       )}
 
-      <div className="print-only">
-        <MfvDiagram project={data.project} scenario={activeScenario} results={activeResults} print />
-      </div>
+      {exportOpen && (
+        <ExportModal
+          printRef={printRef}
+          scenarioName={activeScenario.name}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
     </div>
   );
 }
