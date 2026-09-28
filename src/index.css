@@ -199,12 +199,11 @@ button, input, select { font: inherit; cursor: pointer; }
 }
 .primary-button:hover { background: #0077ed; transform: translateY(-1px); }
 .primary-button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-.copy-scenario-button {
+.future-sync-status {
   height: 36px; padding: 0 11px; color: #12683a; background: #e9f7ef;
   border: 1px solid #bfe6cf; border-radius: 9px; font-size: 10px; font-weight: 650;
-  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
 }
-.copy-scenario-button:hover { background: #dcf2e6; border-color: #8fd0aa; }
 .icon-button { width: 32px; height: 32px; color: #6e6e73; background: #f2f2f4; border-radius: 50%; }
 .icon-button:hover { color: #1d1d1f; }
 

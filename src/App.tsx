@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AlertTriangle, BookOpen, Calculator, CheckCircle2, Copy, Download, FileImage, FileText, GitCompareArrows,
+  AlertTriangle, BookOpen, Calculator, CheckCircle2, Download, FileImage, FileText, GitCompareArrows,
   ImageDown, LayoutTemplate, Loader2, Map, PanelLeftClose, PanelLeftOpen,
   RotateCcw, Route, Save, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
@@ -26,7 +26,8 @@ import truckThreeQuarter from './assets/truck-three-quarter.png';
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'mfv-canvas:v2';
+const STORAGE_KEY = 'mfv-canvas:v3';
+const PREVIOUS_STORAGE_KEY = 'mfv-canvas:v2';
 const LEGACY_STORAGE_KEY = 'mfv-simulation:v2';
 const FIXED_PLANNING_ID = '__mfv-demand-planning__';
 const FIXED_IDENTIFICATION_ID = '__mfv-identification__';
@@ -182,6 +183,89 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
   };
 }
 
+function cloneCanvas(canvas: CanvasState): CanvasState {
+  return JSON.parse(JSON.stringify(canvas)) as CanvasState;
+}
+
+function mergeForwardData(
+  previous: Record<string, string | number>,
+  current: Record<string, string | number>,
+  future: Record<string, string | number>,
+) {
+  const merged = { ...future };
+  const keys = new Set([...Object.keys(previous), ...Object.keys(current)]);
+  keys.forEach((key) => {
+    const existedBefore = Object.prototype.hasOwnProperty.call(previous, key);
+    const existsNow = Object.prototype.hasOwnProperty.call(current, key);
+    const existsInFuture = Object.prototype.hasOwnProperty.call(future, key);
+    if ((!existedBefore && !existsInFuture) || (existedBefore && Object.is(future[key], previous[key]))) {
+      if (existsNow) merged[key] = current[key];
+      else delete merged[key];
+    }
+  });
+  return merged;
+}
+
+function mergeForwardElement(previous: CanvasElement, current: CanvasElement, future: CanvasElement): CanvasElement {
+  return {
+    ...future,
+    kind: future.kind === previous.kind ? current.kind : future.kind,
+    x: future.x === previous.x ? current.x : future.x,
+    y: future.y === previous.y ? current.y : future.y,
+    label: future.label === previous.label ? current.label : future.label,
+    data: mergeForwardData(previous.data, current.data, future.data),
+  };
+}
+
+function mergeForwardArrow(previous: CanvasArrow, current: CanvasArrow, future: CanvasArrow): CanvasArrow {
+  return {
+    ...future,
+    kind: future.kind === previous.kind ? current.kind : future.kind,
+    x1: future.x1 === previous.x1 ? current.x1 : future.x1,
+    y1: future.y1 === previous.y1 ? current.y1 : future.y1,
+    x2: future.x2 === previous.x2 ? current.x2 : future.x2,
+    y2: future.y2 === previous.y2 ? current.y2 : future.y2,
+    label: future.label === previous.label ? current.label : future.label,
+  };
+}
+
+function syncCurrentIntoFuture(previousCurrent: CanvasState, current: CanvasState, future: CanvasState): CanvasState {
+  const previousElements = new globalThis.Map(previousCurrent.elements.map((element) => [element.id, element]));
+  const currentElements = new globalThis.Map(current.elements.map((element) => [element.id, element]));
+  const futureElements = future.elements
+    .filter((element) => !previousElements.has(element.id) || currentElements.has(element.id))
+    .map((element) => {
+      const previous = previousElements.get(element.id);
+      const next = currentElements.get(element.id);
+      return previous && next ? mergeForwardElement(previous, next, element) : element;
+    });
+  const futureElementIds = new Set(futureElements.map((element) => element.id));
+  current.elements.forEach((element) => {
+    if (!previousElements.has(element.id) && !futureElementIds.has(element.id)) futureElements.push(cloneCanvas({ elements: [element], arrows: [], assumptions: current.assumptions }).elements[0]);
+  });
+
+  const previousArrows = new globalThis.Map(previousCurrent.arrows.map((arrow) => [arrow.id, arrow]));
+  const currentArrows = new globalThis.Map(current.arrows.map((arrow) => [arrow.id, arrow]));
+  const futureArrows = future.arrows
+    .filter((arrow) => !previousArrows.has(arrow.id) || currentArrows.has(arrow.id))
+    .map((arrow) => {
+      const previous = previousArrows.get(arrow.id);
+      const next = currentArrows.get(arrow.id);
+      return previous && next ? mergeForwardArrow(previous, next, arrow) : arrow;
+    });
+  const futureArrowIds = new Set(futureArrows.map((arrow) => arrow.id));
+  current.arrows.forEach((arrow) => {
+    if (!previousArrows.has(arrow.id) && !futureArrowIds.has(arrow.id)) futureArrows.push({ ...arrow });
+  });
+
+  const assumptions = { ...future.assumptions };
+  (Object.keys(current.assumptions) as (keyof ScenarioAssumptions)[]).forEach((key) => {
+    if (future.assumptions[key] === previousCurrent.assumptions[key]) assumptions[key] = current.assumptions[key];
+  });
+
+  return normalizeCanvas({ ...future, elements: futureElements, arrows: futureArrows, assumptions });
+}
+
 function createExcelTemplate(assumptions: ScenarioAssumptions, scenario: ActiveKind): CanvasState {
   const processSpecs = [
     ['Posicionar caixa na esteira', 690],
@@ -232,24 +316,29 @@ function createExcelTemplate(assumptions: ScenarioAssumptions, scenario: ActiveK
 function loadCanvases(): Record<ActiveKind, CanvasState> {
   try {
     const s = localStorage.getItem(STORAGE_KEY);
+    const previousCanvasRaw = localStorage.getItem(PREVIOUS_STORAGE_KEY);
     const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
     const legacy = legacyRaw ? JSON.parse(legacyRaw) as { current?: Scenario; future?: Scenario } : undefined;
     if (s) {
       const parsed = JSON.parse(s) as Partial<Record<ActiveKind, CanvasState>>;
+      const current = normalizeCanvas(parsed.current, legacy?.current);
       return {
-        current: normalizeCanvas(parsed.current, legacy?.current),
-        future: normalizeCanvas(parsed.future, legacy?.future),
+        current,
+        future: parsed.future ? normalizeCanvas(parsed.future, legacy?.future) : cloneCanvas(current),
       };
     }
-    return {
-      current: normalizeCanvas(undefined, legacy?.current),
-      future: normalizeCanvas(undefined, legacy?.future),
-    };
+    if (previousCanvasRaw) {
+      const parsed = JSON.parse(previousCanvasRaw) as Partial<Record<ActiveKind, CanvasState>>;
+      const current = normalizeCanvas(parsed.current, legacy?.current);
+      const result = { current, future: cloneCanvas(current) };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+      return result;
+    }
+    const current = normalizeCanvas(undefined, legacy?.current);
+    return { current, future: cloneCanvas(current) };
   } catch { /* ignore */ }
-  return {
-    current: normalizeCanvas(undefined),
-    future: normalizeCanvas(undefined),
-  };
+  const current = normalizeCanvas(undefined);
+  return { current, future: cloneCanvas(current) };
 }
 
 // ─── Field definitions para cada elemento ────────────────────────────────────
@@ -845,8 +934,10 @@ export default function App() {
 
   const setCanvas = useCallback((next: CanvasState | ((p: CanvasState) => CanvasState)) => {
     setCanvases((prev) => {
-      const updated = typeof next === 'function' ? next(prev[activeKind]) : next;
-      const result = { ...prev, [activeKind]: normalizeCanvas(updated) };
+      const updated = normalizeCanvas(typeof next === 'function' ? next(prev[activeKind]) : next);
+      const result = activeKind === 'current'
+        ? { current: updated, future: syncCurrentIntoFuture(prev.current, updated, prev.future) }
+        : { ...prev, future: updated };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
       return result;
     });
@@ -1034,17 +1125,6 @@ export default function App() {
     setDemandOpen(false);
   };
 
-  const copyCurrentToFuture = () => {
-    if (!window.confirm('Substituir o Estado Futuro por uma cópia completa do Estado Atual?')) return;
-    setCanvases((previous) => {
-      const clone = JSON.parse(JSON.stringify(previous.current)) as CanvasState;
-      const result = { ...previous, future: normalizeCanvas(clone) };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
-      return result;
-    });
-    setSelectedId(null);
-  };
-
   const applyExcelTemplate = () => {
     if (!window.confirm('Substituir este cenário pelo modelo base inspirado no Excel? Os dados atuais deste cenário serão removidos.')) return;
     setCanvas((previous) => createExcelTemplate(previous.assumptions, activeKind));
@@ -1094,7 +1174,10 @@ export default function App() {
           <div>
             <ScenarioPill kind={activeKind} />
             <h1>{activeKind==='current'?'Estado atual':'Estado futuro'}</h1>
-            <p>Arraste elementos da biblioteca · duplo clique para editar · <kbd style={{background:'rgba(0,0,0,.08)',padding:'1px 5px',borderRadius:4,fontSize:9}}>Delete</kbd> para remover</p>
+            <p>{activeKind === 'current'
+              ? <>Tudo que for criado aqui avança automaticamente para o Estado futuro.</>
+              : <>Simule demanda, cargas e tempos sem alterar o Estado atual.</>}
+            </p>
           </div>
           <div className="header-actions">
             <div className="simulation-summary">
@@ -1110,9 +1193,9 @@ export default function App() {
                     : simulation.processElements.length ? 'Processos atendem' : 'Adicione processos'}</span>
               </div>
             </div>
-            {activeKind === 'future' && <button className="quiet-button copy-scenario-button" onClick={copyCurrentToFuture}>
-              <Copy size={15}/>Copiar estado atual
-            </button>}
+            {activeKind === 'future' && <div className="future-sync-status" title="O Estado futuro recebe automaticamente a estrutura do Estado atual. Alterações feitas aqui não retornam.">
+              <CheckCircle2 size={15}/><span>Base sincronizada</span>
+            </div>}
             <div className="zoom-controls">
               <button onClick={() => setZoom(z => Math.max(0.15, z*.85))}><ZoomOut size={15}/></button>
               <span>{Math.round(zoom*100)}%</span>
