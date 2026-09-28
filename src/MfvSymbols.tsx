@@ -1,227 +1,513 @@
-// Renderizadores SVG inline de cada símbolo MFV
-// Cada um recebe (w, h, label, data, selected, onEdit)
-
 import type { CanvasElement } from './canvas-types';
 
-interface SymProps {
-  el: CanvasElement;
-  selected: boolean;
-  onEdit: () => void;
-}
+interface SymProps { el: CanvasElement; selected: boolean; onEdit: () => void; }
 
-/* ── utilitários ── */
-function wrap(text: string, maxW: number, fontSize: number): string[] {
-  // quebra em \n explícito primeiro, depois por espaço
-  const lines: string[] = [];
-  for (const part of text.split('\n')) {
-    const words = part.split(' ');
-    let cur = '';
-    const charsPerLine = Math.floor(maxW / (fontSize * 0.55));
-    for (const w of words) {
-      if ((cur + ' ' + w).trim().length > charsPerLine && cur) {
-        lines.push(cur.trim());
-        cur = w;
-      } else {
-        cur = (cur + ' ' + w).trim();
-      }
-    }
-    if (cur) lines.push(cur.trim());
-  }
-  return lines;
-}
+function sel(selected: boolean, base: string) { return selected ? '#0071e3' : base; }
+function selW(selected: boolean) { return selected ? 2.5 : 1.5; }
 
-function EditBtn({ onEdit }: { onEdit: () => void }) {
+function EditBtn({ onEdit, x = 0, y = 0 }: { onEdit: () => void; x?: number; y?: number }) {
   return (
-    <g className="edit-btn-group" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
-      <rect x={-10} y={-10} width={22} height={22} rx={4} fill="white" stroke="#d0d0d8" strokeWidth={1} opacity={0.9} />
-      <path d="M-3,3 L1,-1 M-3,3 L-4,4 M1,-1 L4,2 M-4,4 L-3,5 L-4,4 M-3,5 L0,4 L-3,5 M1,-1 C2,-2 3,-2 4,-1 C5,0 5,1 4,2" stroke="#0071e3" strokeWidth={1.2} fill="none" strokeLinecap="round" />
+    <g className="edit-btn-group" transform={`translate(${x},${y})`}
+      onClick={(e) => { e.stopPropagation(); onEdit(); }} style={{ cursor: 'pointer' }}>
+      <rect x={-11} y={-11} width={22} height={22} rx={5} fill="white" stroke="#d0d0d8" strokeWidth={1} opacity={0.95} />
+      <path d="M-4,4 L0,0 M-4,4 L-5,5 M0,0 L3,3 M-5,5 L-4,6 L-5,5 M-4,6 L-1,5 M0,0 C1,-1 2,-1 3,0 C4,1 4,2 3,3"
+        stroke="#0071e3" strokeWidth={1.3} fill="none" strokeLinecap="round" />
     </g>
   );
 }
 
-/* ── Processo ── */
+function SelectionRect({ w, h }: { w: number; h: number }) {
+  return <rect x={-2} y={-2} width={w + 4} height={h + 4} rx={4}
+    fill="none" stroke="#0071e3" strokeWidth={2} strokeDasharray="4 2" opacity={0.7} />;
+}
+
+// ── Processo ─────────────────────────────────────────────────────────────────
 export function ProcessSymbol({ el, selected, onEdit }: SymProps) {
   const w = 150; const h = 160;
-  const d = el.data;
   const rows = [
-    { k: 'Operadores', v: `${d.op ?? 1}` },
-    { k: 'T/C', v: `${d.tc ?? 0} s` },
-    { k: 'Setup', v: `${d.setup ?? 0} min` },
-    { k: 'Lote', v: `${d.lote ?? 1}` },
-    { k: 'Disponib.', v: `${d.disp ?? 100}%` },
-    { k: 'WIP', v: `${d.wip ?? 0} un` },
+    { k: 'Operadores', v: `${el.data.op ?? 1}` },
+    { k: 'T/C', v: `${el.data.tc ?? 0} s` },
+    { k: 'Setup', v: `${el.data.setup ?? 0} min` },
+    { k: 'Lote', v: `${el.data.lote ?? 1}` },
+    { k: 'Disponib.', v: `${el.data.disp ?? 100}%` },
+    { k: 'WIP', v: `${el.data.wip ?? 0} un` },
   ];
-  const titleLines = wrap(el.label || 'Processo', w - 24, 8);
-  const titleH = Math.max(36, titleLines.length * 11 + 14);
+  const label = el.label || 'Processo';
   return (
     <g>
-      <rect width={w} height={h} fill="white" stroke={selected ? '#0071e3' : '#7a8494'} strokeWidth={selected ? 2 : 1.5} />
-      {/* cabeçalho verde */}
-      <rect width={w} height={titleH} fill={selected ? '#c5e8ff' : '#bfefc0'} />
-      {titleLines.map((ln, i) => (
-        <text key={i} x={w / 2} y={14 + i * 11} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill="#1a2a1a">{ln}</text>
-      ))}
-      <line x1={0} y1={titleH} x2={w} y2={titleH} stroke="#7a8494" strokeWidth={1} />
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} fill="white" stroke={sel(selected,'#7a8494')} strokeWidth={selW(selected)} />
+      <rect width={w} height={38} fill={selected ? '#d6eeff' : '#bfefc0'} />
+      <line x1={0} y1={38} x2={w} y2={38} stroke="#9aa0ae" strokeWidth={1} />
+      <text x={w/2} y={16} textAnchor="middle" fontSize={8.5} fontWeight="700" fontFamily="Arial" fill="#1a2a1a">{label.split('\n')[0]}</text>
+      {label.split('\n')[1] && <text x={w/2} y={28} textAnchor="middle" fontSize={8} fontFamily="Arial" fill="#1a2a1a">{label.split('\n')[1]}</text>}
       {rows.map((r, i) => (
         <g key={r.k}>
-          <line x1={0} y1={titleH + 1 + (i + 1) * 17} x2={w} y2={titleH + 1 + (i + 1) * 17} stroke="#dde0e9" strokeWidth={0.8} />
-          <text x={6} y={titleH + 12 + i * 17} fontSize={6.5} fontFamily="Arial" fill="#50575f" fontWeight="700" textAnchor="start">{r.k}</text>
-          <text x={w - 6} y={titleH + 12 + i * 17} fontSize={7} fontFamily="Arial" fill="#1d2128" fontWeight="700" textAnchor="end">{r.v}</text>
+          {i > 0 && <line x1={0} y1={38 + i * 20} x2={w} y2={38 + i * 20} stroke="#dde0e9" strokeWidth={0.8} />}
+          <text x={6} y={38 + 14 + i * 20} fontSize={6.5} fontFamily="Arial" fill="#50575f" fontWeight="700">{r.k}</text>
+          <text x={w-6} y={38 + 14 + i * 20} fontSize={7} fontFamily="Arial" fill="#1d2128" fontWeight="700" textAnchor="end">{r.v}</text>
         </g>
       ))}
-      <g transform={`translate(${w - 4}, 4)`}><EditBtn onEdit={onEdit} /></g>
+      <EditBtn onEdit={onEdit} x={w - 2} y={2} />
     </g>
   );
 }
 
-/* ── Fornecedor / Cliente (fábrica) ── */
-export function PartySymbol({ el, selected, onEdit }: SymProps) {
-  const w = 120; const h = 80;
-  const isCustomer = el.kind === 'customer';
-  const fill = isCustomer ? '#b8ccf5' : '#a8bcf0';
-  const label = el.label || (isCustomer ? 'Cliente' : 'Fornecedor');
-  const lines = wrap(label, w - 12, 9);
+// ── Célula de trabalho (U-shape) ──────────────────────────────────────────────
+export function WorkCellSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 160; const h = 100;
   return (
     <g>
-      <rect width={w} height={h} fill={fill} stroke={selected ? '#0071e3' : '#6a80cc'} strokeWidth={selected ? 2 : 1.5} />
-      {/* ícone fábrica simplificado */}
-      <rect x={10} y={12} width={28} height={22} fill="none" stroke="#1a2560" strokeWidth={1.2} />
-      <polygon points="10,12 24,4 38,12" fill="#1a2560" />
-      <rect x={15} y={20} width={5} height={5} fill="#1a2560" />
-      <rect x={24} y={20} width={5} height={5} fill="#1a2560" />
-      <rect x={14} y={28} width={10} height={6} fill="white" />
-      {/* chaminé */}
-      <rect x={30} y={6} width={4} height={8} fill="#1a2560" />
-      {lines.map((ln, i) => (
-        <text key={i} x={w / 2 + 8} y={22 + i * 11} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#122060">{ln}</text>
-      ))}
-      {el.data.freq && <text x={w / 2} y={h - 6} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#384e8a">a cada {el.data.freq} dia(s)</text>}
-      <g transform={`translate(${w - 4}, 4)`}><EditBtn onEdit={onEdit} /></g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <path d={`M 10,8 L ${w-10},8 L ${w-10},${h-20} Q ${w-10},${h-8} ${w-22},${h-8} L 22,${h-8} Q 10,${h-8} 10,${h-20} Z`}
+        fill={selected ? '#d6eeff' : '#e8f4e8'} stroke={sel(selected,'#4a8050')} strokeWidth={selW(selected)} />
+      <text x={w/2} y={32} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1a3a1a">{el.label || 'Célula'}</text>
+      <text x={w/2} y={48} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#2a5a2a">{el.data.op ?? 1} operador(es)</text>
+      {/* mini boneco */}
+      <circle cx={w/2} cy={66} r={6} fill="none" stroke="#4a8050" strokeWidth={1.5} />
+      <line x1={w/2} y1={72} x2={w/2} y2={84} stroke="#4a8050" strokeWidth={1.5} />
+      <line x1={w/2-8} y1={76} x2={w/2+8} y2={76} stroke="#4a8050" strokeWidth={1.5} />
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
 }
 
-/* ── Caminhão ── */
+// ── Fornecedor / Cliente ──────────────────────────────────────────────────────
+export function PartySymbol({ el, selected, onEdit }: SymProps) {
+  const w = 120; const h = 80;
+  const isC = el.kind === 'customer';
+  const fill = isC ? '#b8ccf5' : '#a8bcf0';
+  const label = el.label || (isC ? 'Cliente' : 'Fornecedor');
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} fill={fill} stroke={sel(selected,'#6a80cc')} strokeWidth={selW(selected)} />
+      {/* fábrica */}
+      <rect x={8} y={10} width={28} height={22} fill="none" stroke="#1a2560" strokeWidth={1.2} />
+      <polygon points="8,10 22,3 36,10" fill="#1a2560" />
+      <rect x={13} y={19} width={5} height={5} fill="#1a2560" />
+      <rect x={22} y={19} width={5} height={5} fill="#1a2560" />
+      <rect x={12} y={26} width={10} height={6} fill="white" />
+      <rect x={30} y={4} width={4} height={8} fill="#1a2560" />
+      <text x={w/2+8} y={22} textAnchor="middle" fontSize={8.5} fontWeight="700" fontFamily="Arial" fill="#122060">{label.split('\n')[0]}</text>
+      {label.split('\n')[1] && <text x={w/2+8} y={33} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#122060">{label.split('\n')[1]}</text>}
+      {el.data.freq && <text x={w/2} y={h-6} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#384e8a">a cada {el.data.freq} dia(s)</text>}
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Caminhão ──────────────────────────────────────────────────────────────────
 export function TruckSymbol({ el, selected, onEdit }: SymProps) {
   const w = 90; const h = 50;
   return (
     <g>
-      {/* carroceria */}
-      <rect x={2} y={6} width={52} height={28} rx={1} fill="#8a9099" stroke={selected ? '#0071e3' : '#6a6e78'} strokeWidth={selected ? 2 : 1} />
-      {/* cabine */}
-      <rect x={54} y={10} width={30} height={24} rx={2} fill="#5d6470" stroke={selected ? '#0071e3' : '#6a6e78'} strokeWidth={selected ? 2 : 1} />
-      {/* janela */}
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect x={2} y={6} width={52} height={28} rx={1} fill="#8a9099" stroke={sel(selected,'#5a5e68')} strokeWidth={selW(selected)} />
+      <rect x={54} y={10} width={30} height={24} rx={2} fill="#5d6470" stroke={sel(selected,'#5a5e68')} strokeWidth={selW(selected)} />
       <rect x={57} y={13} width={12} height={9} rx={1} fill="#a8d4f5" />
-      {/* rodas */}
-      <circle cx={18} cy={38} r={6} fill="#2c2f35" /><circle cx={18} cy={38} r={3} fill="#555" />
-      <circle cx={68} cy={38} r={6} fill="#2c2f35" /><circle cx={68} cy={38} r={3} fill="#555" />
+      <circle cx={18} cy={38} r={6} fill="#2c2f35" /><circle cx={18} cy={38} r={3} fill="#666" />
+      <circle cx={68} cy={38} r={6} fill="#2c2f35" /><circle cx={68} cy={38} r={3} fill="#666" />
       {el.label && <text x={28} y={24} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="white" fontWeight="700">{el.label}</text>}
-      <g transform={`translate(${w - 6}, 2)`}><EditBtn onEdit={onEdit} /></g>
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
 }
 
-/* ── Estoque (triângulo) ── */
+// ── Ponto de expedição ────────────────────────────────────────────────────────
+export function ShippingPointSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 100; const h = 70;
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} rx={4} fill={selected ? '#d6eeff' : '#e8f0ff'} stroke={sel(selected,'#4a6ab0')} strokeWidth={selW(selected)} />
+      {/* ícone caixa */}
+      <rect x={30} y={10} width={40} height={30} fill="none" stroke="#2a4a90" strokeWidth={1.5} />
+      <line x1={30} y1={22} x2={70} y2={22} stroke="#2a4a90" strokeWidth={1} />
+      <polygon points="50,10 60,16 60,22 50,28 40,22 40,16" fill="#a8bcf0" stroke="#2a4a90" strokeWidth={0.8} />
+      <text x={w/2} y={h-8} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill="#2a4090">{el.label || 'Expedição'}</text>
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Estoque ───────────────────────────────────────────────────────────────────
 export function InventorySymbol({ el, selected, onEdit }: SymProps) {
   const w = 60; const h = 60;
   return (
     <g>
-      <polygon points={`${w / 2},4 ${w - 4},${h - 20} 4,${h - 20}`} fill="#f0ce40" stroke={selected ? '#0071e3' : '#b89020'} strokeWidth={selected ? 2 : 1.5} />
-      <text x={w / 2} y={h - 22} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fontWeight="700" fill="#363b43">{el.data.qty ?? 0}</text>
-      <text x={w / 2} y={h - 8} textAnchor="middle" fontSize={6} fontFamily="Arial" fill="#636b73">{el.data.dias ?? 0} dias</text>
-      <g transform={`translate(${w - 4}, 2)`}><EditBtn onEdit={onEdit} /></g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <polygon points={`${w/2},4 ${w-4},${h-18} 4,${h-18}`} fill={selected ? '#ffeaa0' : '#f0ce40'} stroke={sel(selected,'#b89020')} strokeWidth={selW(selected)} />
+      <text x={w/2} y={h-22} textAnchor="middle" fontSize={8} fontFamily="Arial" fontWeight="700" fill="#363b43">{el.data.qty ?? 0}</text>
+      <text x={w/2} y={h-8} textAnchor="middle" fontSize={6} fontFamily="Arial" fill="#636b73">{el.data.dias ?? 0}d</text>
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
 }
 
-/* ── Supermercado ── */
+// ── Buffer ────────────────────────────────────────────────────────────────────
+export function BufferSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 80; const h = 60;
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} rx={3} fill={selected ? '#ffe8b0' : '#fff3cc'} stroke={sel(selected,'#cc8800')} strokeWidth={selW(selected)} strokeDasharray="5 3" />
+      <text x={w/2} y={22} textAnchor="middle" fontSize={14} fontWeight="900" fontFamily="Arial" fill="#cc8800">B</text>
+      <text x={w/2} y={38} textAnchor="middle" fontSize={7} fontFamily="Arial" fontWeight="700" fill="#664400">{el.label || 'Buffer'}</text>
+      {el.data.qty !== undefined && Number(el.data.qty) > 0 &&
+        <text x={w/2} y={52} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#886600">{el.data.qty} un</text>}
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Supermercado ──────────────────────────────────────────────────────────────
 export function SupermarketSymbol({ el, selected, onEdit }: SymProps) {
   const w = 80; const h = 70;
   return (
     <g>
-      <rect x={2} y={2} width={w - 4} height={h - 22} fill="none" stroke={selected ? '#0071e3' : '#2c5fa8'} strokeWidth={selected ? 2 : 1.5} />
-      <line x1={2} y1={18} x2={w - 4} y2={18} stroke="#2c5fa8" strokeWidth={1} />
-      <line x1={2} y1={32} x2={w - 4} y2={32} stroke="#2c5fa8" strokeWidth={1} />
-      {[8, 22, 36].map((x) => [5, 19, 33].map((y) => (
-        <rect key={`${x}-${y}`} x={x} y={y} width={8} height={8} fill="#a8c4f0" stroke="#2c5fa8" strokeWidth={0.5} rx={0.5} />
-      )))}
-      {el.data.qty !== undefined && <text x={w / 2} y={h - 6} textAnchor="middle" fontSize={7} fontFamily="Arial" fontWeight="700" fill="#1a3a80">{el.data.qty} un</text>}
-      <g transform={`translate(${w - 4}, 2)`}><EditBtn onEdit={onEdit} /></g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect x={2} y={2} width={w-4} height={h-24} fill="none" stroke={sel(selected,'#2c5fa8')} strokeWidth={selW(selected)} />
+      <line x1={2} y1={18} x2={w-4} y2={18} stroke="#2c5fa8" strokeWidth={1} />
+      <line x1={2} y1={32} x2={w-4} y2={32} stroke="#2c5fa8" strokeWidth={1} />
+      {[8,22,36].map((x)=>[5,19,33].map((y)=>
+        <rect key={`${x}-${y}`} x={x} y={y} width={8} height={8} fill={selected?'#b0d4ff':'#a8c4f0'} stroke="#2c5fa8" strokeWidth={0.5} rx={0.5}/>
+      ))}
+      {el.data.qty !== undefined && <text x={w/2} y={h-8} textAnchor="middle" fontSize={7} fontFamily="Arial" fontWeight="700" fill="#1a3a80">{el.data.qty} un</text>}
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
 }
 
-/* ── FIFO ── */
+// ── FIFO ──────────────────────────────────────────────────────────────────────
 export function FifoSymbol({ el, selected, onEdit }: SymProps) {
   const w = 100; const h = 50;
   return (
     <g>
-      <rect x={1} y={10} width={w - 2} height={26} fill="none" stroke={selected ? '#0071e3' : '#555'} strokeWidth={selected ? 2 : 1.5} />
-      <text x={w / 2} y={25} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill="#333">FIFO</text>
-      <polygon points={`${w - 16},10 ${w - 2},23 ${w - 16},36`} fill={selected ? '#0071e3' : '#555'} />
-      {el.data.qty !== undefined && Number(el.data.qty) > 0 && <text x={w / 2 - 10} y={42} textAnchor="middle" fontSize={6} fontFamily="Arial" fill="#636b73">{el.data.qty} un</text>}
-      <g transform={`translate(${w - 4}, 2)`}><EditBtn onEdit={onEdit} /></g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect x={1} y={10} width={w-2} height={26} fill={selected?'#d6eeff':'white'} stroke={sel(selected,'#555')} strokeWidth={selW(selected)} />
+      <text x={w/2-8} y={25} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill="#333">FIFO</text>
+      <polygon points={`${w-16},10 ${w-2},23 ${w-16},36`} fill={sel(selected,'#555')} />
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
 }
 
-/* ── Controle de produção ── */
+// ── Kanban de produção (cartão laranja) ───────────────────────────────────────
+export function KanbanProductionSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 60; const h = 44;
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} rx={3} fill={selected?'#ffd088':'#ff9500'} stroke={sel(selected,'#cc6600')} strokeWidth={selW(selected)} />
+      <rect x={4} y={4} width={w-8} height={h-8} rx={2} fill="rgba(255,255,255,0.25)" />
+      <text x={w/2} y={16} textAnchor="middle" fontSize={6} fontWeight="800" fontFamily="Arial" fill="white">KANBAN</text>
+      <text x={w/2} y={26} textAnchor="middle" fontSize={6} fontWeight="700" fontFamily="Arial" fill="white">PRODUÇÃO</text>
+      {el.data.qty !== undefined && Number(el.data.qty) > 0 &&
+        <text x={w/2} y={38} textAnchor="middle" fontSize={7} fontFamily="Arial" fill="white" fontWeight="700">{el.data.qty} un</text>}
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Kanban de retirada (cartão verde) ─────────────────────────────────────────
+export function KanbanWithdrawalSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 60; const h = 44;
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} rx={3} fill={selected?'#88dd88':'#30a830'} stroke={sel(selected,'#1a7a1a')} strokeWidth={selW(selected)} />
+      <rect x={4} y={4} width={w-8} height={h-8} rx={2} fill="rgba(255,255,255,0.25)" />
+      <text x={w/2} y={16} textAnchor="middle" fontSize={6} fontWeight="800" fontFamily="Arial" fill="white">KANBAN</text>
+      <text x={w/2} y={26} textAnchor="middle" fontSize={6} fontWeight="700" fontFamily="Arial" fill="white">RETIRADA</text>
+      {el.data.qty !== undefined && Number(el.data.qty) > 0 &&
+        <text x={w/2} y={38} textAnchor="middle" fontSize={7} fontFamily="Arial" fill="white" fontWeight="700">{el.data.qty} un</text>}
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Quadro Kanban ─────────────────────────────────────────────────────────────
+export function KanbanBoardSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 120; const h = 100;
+  const cols = Math.max(1, Number(el.data.cols) || 3);
+  const rows = Math.max(1, Number(el.data.rows) || 3);
+  const cw = (w - 10) / cols; const rh = (h - 22) / rows;
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} rx={3} fill={selected?'#d6eeff':'#f0f4ff'} stroke={sel(selected,'#4a6ab0')} strokeWidth={selW(selected)} />
+      <rect width={w} height={18} rx={3} fill={selected?'#90b8e8':'#4a6ab0'} />
+      <text x={w/2} y={12} textAnchor="middle" fontSize={7.5} fontWeight="700" fontFamily="Arial" fill="white">{el.label || 'Quadro Kanban'}</text>
+      {Array.from({length: rows}, (_,r) => Array.from({length: cols}, (_,c) => (
+        <rect key={`${r}-${c}`} x={5 + c*cw} y={20 + r*rh} width={cw-2} height={rh-2} rx={1}
+          fill={Math.random() > 0.5 ? '#ff9500' : 'white'} stroke="#8090c0" strokeWidth={0.7} />
+      )))}
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Heijunka box ──────────────────────────────────────────────────────────────
+export function HeijunkaSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 140; const h = 80;
+  const cols = Math.max(1, Number(el.data.cols) || 5);
+  const rows = Math.max(1, Number(el.data.rows) || 2);
+  const cw = (w - 10) / cols; const rh = (h - 22) / rows;
+  const colors = ['#ff9500','#30a830','#0071e3','#ff3b30','#5856d6'];
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} rx={3} fill={selected?'#ffe8b0':'#fffbe8'} stroke={sel(selected,'#cc8800')} strokeWidth={selW(selected)} />
+      <rect width={w} height={18} rx={3} fill={selected?'#ffcc44':'#cc8800'} />
+      <text x={w/2} y={12} textAnchor="middle" fontSize={7.5} fontWeight="700" fontFamily="Arial" fill="white">{el.label || 'Heijunka'}</text>
+      {Array.from({length: rows}, (_,r) => Array.from({length: cols}, (_,c) => (
+        <rect key={`${r}-${c}`} x={5 + c*cw} y={20 + r*rh} width={cw-2} height={rh-2} rx={1}
+          fill={r === 0 ? colors[c % colors.length] : 'white'} stroke="#cc8800" strokeWidth={0.7} />
+      )))}
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Caixa de sequenciamento ───────────────────────────────────────────────────
+export function SequencingBoxSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 120; const h = 60;
+  const slots = Math.max(1, Number(el.data.slots) || 6);
+  const sw = (w - 10) / slots;
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} rx={3} fill={selected?'#e8d8ff':'#f5eeff'} stroke={sel(selected,'#6040b0')} strokeWidth={selW(selected)} />
+      <rect width={w} height={18} rx={3} fill={selected?'#9070d8':'#6040b0'} />
+      <text x={w/2} y={12} textAnchor="middle" fontSize={7} fontWeight="700" fontFamily="Arial" fill="white">{el.label || 'Sequenciamento'}</text>
+      {Array.from({length: slots}, (_,i) => (
+        <rect key={i} x={5 + i*sw} y={22} width={sw-2} height={30} rx={1} fill="white" stroke="#8060c0" strokeWidth={0.8} />
+      ))}
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Controle de produção ──────────────────────────────────────────────────────
 export function PlanningSymbol({ el, selected, onEdit }: SymProps) {
   const w = 160; const h = 110;
-  const lines = wrap(el.label || 'Controle da\nProdução', w - 20, 8);
+  const label = el.label || 'Controle da\nProdução';
   return (
     <g>
-      <rect width={w} height={h} fill="white" stroke={selected ? '#0071e3' : '#8a93a8'} strokeWidth={selected ? 2 : 1.5} />
-      <rect width={w} height={28} fill="#a8bcf0" />
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} fill="white" stroke={sel(selected,'#8a93a8')} strokeWidth={selW(selected)} />
+      <rect width={w} height={28} fill={selected?'#b0ccf0':'#a8bcf0'} />
       <line x1={0} y1={28} x2={w} y2={28} stroke="#8a93a8" strokeWidth={1} />
-      {lines.map((ln, i) => (
-        <text key={i} x={w / 2} y={13 + i * 11} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill="#122060">{ln}</text>
-      ))}
-      {[
-        { k: 'Demanda', v: `${el.data.demanda ?? '—'} un/mês` },
-        { k: 'Takt time', v: `${el.data.takt ?? '—'} s` },
-      ].map((r, i) => (
+      {label.split('\n').map((ln,i) =>
+        <text key={i} x={w/2} y={13+i*12} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill="#122060">{ln}</text>
+      )}
+      {[{k:'Demanda',v:`${el.data.demanda??'—'} un/mês`},{k:'Takt time',v:`${el.data.takt??'—'} s`}].map((r,i)=>(
         <g key={r.k}>
-          <line x1={0} y1={28 + (i + 1) * 22} x2={w} y2={28 + (i + 1) * 22} stroke="#dde0e9" strokeWidth={0.8} />
-          <text x={6} y={28 + 15 + i * 22} fontSize={7} fontFamily="Arial" fill="#50575f" fontWeight="700">{r.k}</text>
-          <text x={w - 6} y={28 + 15 + i * 22} fontSize={7} fontFamily="Arial" fill="#1d2128" fontWeight="700" textAnchor="end">{r.v}</text>
+          <line x1={0} y1={28+(i+1)*22} x2={w} y2={28+(i+1)*22} stroke="#dde0e9" strokeWidth={0.8} />
+          <text x={6} y={28+15+i*22} fontSize={7} fontFamily="Arial" fill="#50575f" fontWeight="700">{r.k}</text>
+          <text x={w-6} y={28+15+i*22} fontSize={7} fontFamily="Arial" fill="#1d2128" fontWeight="700" textAnchor="end">{r.v}</text>
         </g>
       ))}
-      <g transform={`translate(${w - 4}, 4)`}><EditBtn onEdit={onEdit} /></g>
+      <EditBtn onEdit={onEdit} x={w-2} y={4} />
     </g>
   );
 }
 
-/* ── Kaizen burst ── */
-export function KaizenSymbol({ el, selected, onEdit }: SymProps) {
-  const r = 35;
-  const pts = Array.from({ length: 16 }, (_, i) => {
-    const a = (i / 16) * Math.PI * 2;
-    const rad = i % 2 === 0 ? r : r * 0.65;
-    return `${r + 4 + rad * Math.cos(a)},${r + 4 + rad * Math.sin(a)}`;
-  }).join(' ');
-  const lines = wrap(el.label || 'Kaizen', 52, 7);
+// ── Caixa de dados ────────────────────────────────────────────────────────────
+export function DataBoxSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 130; const h = 90;
+  const rows = [
+    { k: 'T/C', v: `${el.data.tc ?? 0} s` },
+    { k: 'TCP', v: `${el.data.tcp ?? 0} s` },
+    { k: 'Disponib.', v: `${el.data.disp ?? 100}%` },
+    { k: 'Turnos', v: `${el.data.turnos ?? 1}` },
+  ];
   return (
     <g>
-      <polygon points={pts} fill="#ffe04b" stroke={selected ? '#0071e3' : '#b8930f'} strokeWidth={selected ? 2 : 1} />
-      {lines.map((ln, i) => (
-        <text key={i} x={r + 4} y={r + 2 + (i - (lines.length - 1) / 2) * 10} textAnchor="middle" fontSize={7} fontWeight="800" fontFamily="Arial" fill="#6b4c00">{ln}</text>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} fill="white" stroke={sel(selected,'#606878')} strokeWidth={selW(selected)} />
+      <rect width={w} height={20} fill={selected?'#d0d8e8':'#c0c8d8'} />
+      <text x={w/2} y={13} textAnchor="middle" fontSize={7.5} fontWeight="700" fontFamily="Arial" fill="#202838">{el.label || 'Dados'}</text>
+      {rows.map((r,i)=>(
+        <g key={r.k}>
+          <line x1={0} y1={20+(i+1)*17} x2={w} y2={20+(i+1)*17} stroke="#dde0e9" strokeWidth={0.8} />
+          <text x={6} y={20+12+i*17} fontSize={6.5} fontFamily="Arial" fill="#50575f" fontWeight="700">{r.k}</text>
+          <text x={w-6} y={20+12+i*17} fontSize={7} fontFamily="Arial" fill="#1d2128" fontWeight="700" textAnchor="end">{r.v}</text>
+        </g>
       ))}
-      <g transform={`translate(${r * 2 + 2}, 2)`}><EditBtn onEdit={onEdit} /></g>
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
 }
 
-/* ── Linha do tempo ── */
-export function TimelineSymbol({ el, selected, onEdit }: SymProps) {
-  const w = 400; const h = 60;
+// ── Demanda do cliente ────────────────────────────────────────────────────────
+export function CustomerDemandSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 100; const h = 80;
   return (
     <g>
-      <rect width={w} height={h} fill="#f8f9fc" stroke={selected ? '#0071e3' : '#9aa0ae'} strokeWidth={selected ? 2 : 1.5} strokeDasharray={selected ? '0' : '4 3'} />
-      <text x={10} y={18} fontSize={8} fontWeight="700" fontFamily="Arial" fill="#363b43">Lead time total: <tspan fill="#0d3d8c">{el.data.leadtime ?? 0} dias</tspan></text>
-      <text x={10} y={34} fontSize={8} fontWeight="700" fontFamily="Arial" fill="#363b43">Tempo de processo: <tspan fill="#0d3d8c">{el.data.tprocess ?? 0} min</tspan></text>
-      <text x={10} y={50} fontSize={7} fontFamily="Arial" fill="#636b73">{el.label}</text>
-      <g transform={`translate(${w - 4}, 4)`}><EditBtn onEdit={onEdit} /></g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <polygon points={`${w/2},${h-4} 4,4 ${w-4},4`} fill={selected?'#b0d0ff':'#c8dcff'} stroke={sel(selected,'#2a50a0')} strokeWidth={selW(selected)} />
+      <text x={w/2} y={22} textAnchor="middle" fontSize={7} fontWeight="700" fontFamily="Arial" fill="#0a1a60">DEMANDA</text>
+      <text x={w/2} y={36} textAnchor="middle" fontSize={10} fontWeight="800" fontFamily="Arial" fill="#0a1a60">{el.data.qty ?? 0}</text>
+      <text x={w/2} y={50} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#2a3a80">un / {el.data.periodo ?? 0} dias</text>
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Programação de produção (documento) ──────────────────────────────────────
+export function ProductionScheduleSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 110; const h = 70;
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      {/* forma de documento com dobra */}
+      <path d={`M 4,4 L ${w-14},4 L ${w-4},14 L ${w-4},${h-4} L 4,${h-4} Z`}
+        fill={selected?'#e8eeff':'#f0f2ff'} stroke={sel(selected,'#4a5ab0')} strokeWidth={selW(selected)} />
+      <path d={`M ${w-14},4 L ${w-14},14 L ${w-4},14`} fill="none" stroke={sel(selected,'#4a5ab0')} strokeWidth={selW(selected)} />
+      {/* linhas de texto */}
+      {[18,28,38,48].map((y,i) => (
+        <line key={i} x1={10} y1={y} x2={w-16} y2={y} stroke="#8090c0" strokeWidth={i===0?1.5:0.8} />
+      ))}
+      <text x={w/2-4} y={14} textAnchor="middle" fontSize={7} fontWeight="700" fontFamily="Arial" fill="#2a3a90">{el.label||'Programação'}</text>
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Operador ──────────────────────────────────────────────────────────────────
+export function OperatorSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 40; const h = 60;
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      {/* cabeça */}
+      <circle cx={w/2} cy={12} r={9} fill={selected?'#c0d8ff':'#e8f0ff'} stroke={sel(selected,'#2a50a0')} strokeWidth={selW(selected)} />
+      {/* corpo */}
+      <line x1={w/2} y1={21} x2={w/2} y2={42} stroke={sel(selected,'#2a50a0')} strokeWidth={2} />
+      {/* braços */}
+      <line x1={w/2-12} y1={30} x2={w/2+12} y2={30} stroke={sel(selected,'#2a50a0')} strokeWidth={2} />
+      {/* pernas */}
+      <line x1={w/2} y1={42} x2={w/2-10} y2={56} stroke={sel(selected,'#2a50a0')} strokeWidth={2} />
+      <line x1={w/2} y1={42} x2={w/2+10} y2={56} stroke={sel(selected,'#2a50a0')} strokeWidth={2} />
+      {el.data.qty !== undefined && Number(el.data.qty) > 1 &&
+        <text x={w/2} y={h-1} textAnchor="middle" fontSize={7} fontFamily="Arial" fontWeight="700" fill="#2a50a0">×{el.data.qty}</text>}
+      <EditBtn onEdit={onEdit} x={w} y={2} />
+    </g>
+  );
+}
+
+// ── Kaizen burst ──────────────────────────────────────────────────────────────
+export function KaizenSymbol({ el, selected, onEdit }: SymProps) {
+  const r = 34;
+  const pts = Array.from({length:16},(_,i)=>{const a=(i/16)*Math.PI*2;const rad=i%2===0?r:r*.64;return `${r+4+rad*Math.cos(a)},${r+4+rad*Math.sin(a)}`;}).join(' ');
+  const label = el.label || 'Kaizen';
+  return (
+    <g>
+      {selected && <rect x={-2} y={-2} width={78+4} height={78+4} rx={4} fill="none" stroke="#0071e3" strokeWidth={2} strokeDasharray="4 2" opacity={0.7} />}
+      <polygon points={pts} fill={selected?'#ffe888':'#ffe04b'} stroke={sel(selected,'#b8930f')} strokeWidth={selW(selected)} />
+      {label.split('\n').map((ln,i) =>
+        <text key={i} x={r+4} y={r+2+(i-(label.split('\n').length-1)/2)*10} textAnchor="middle" fontSize={7.5} fontWeight="800" fontFamily="Arial" fill="#6b4c00">{ln}</text>
+      )}
+      <EditBtn onEdit={onEdit} x={r*2+2} y={2} />
+    </g>
+  );
+}
+
+// ── Ponto de intervenção (círculo com raios) ──────────────────────────────────
+export function InterventionSymbol({ el, selected, onEdit }: SymProps) {
+  const cx = 35; const cy = 35; const r = 24;
+  const rays = Array.from({length:8},(_,i)=>{
+    const a=(i/8)*Math.PI*2;
+    const x1=cx+r*Math.cos(a); const y1=cy+r*Math.sin(a);
+    const x2=cx+(r+10)*Math.cos(a); const y2=cy+(r+10)*Math.sin(a);
+    return {x1,y1,x2,y2};
+  });
+  const label = el.label || 'Melhoria';
+  return (
+    <g>
+      {selected && <rect x={-2} y={-2} width={74} height={74} rx={4} fill="none" stroke="#0071e3" strokeWidth={2} strokeDasharray="4 2" opacity={0.7} />}
+      {rays.map((ray,i) => (
+        <line key={i} x1={ray.x1} y1={ray.y1} x2={ray.x2} y2={ray.y2} stroke={sel(selected,'#e03030')} strokeWidth={2} />
+      ))}
+      <circle cx={cx} cy={cy} r={r} fill={selected?'#ffd0d0':'#ffebeb'} stroke={sel(selected,'#e03030')} strokeWidth={selW(selected)} />
+      {label.split('\n').map((ln,i) =>
+        <text key={i} x={cx} y={cy+2+(i-(label.split('\n').length-1)/2)*10} textAnchor="middle" fontSize={7} fontWeight="800" fontFamily="Arial" fill="#b01010">{ln}</text>
+      )}
+      <EditBtn onEdit={onEdit} x={68} y={2} />
+    </g>
+  );
+}
+
+// ── Nota / Post-it ────────────────────────────────────────────────────────────
+export function NoteSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 120; const h = 80;
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      {/* sombra */}
+      <rect x={4} y={4} width={w} height={h} rx={3} fill="rgba(0,0,0,.08)" />
+      {/* corpo */}
+      <rect width={w} height={h} rx={3} fill={selected?'#fffaaa':'#fff9c4'} stroke={sel(selected,'#c8b800')} strokeWidth={selW(selected)} />
+      {/* dobra */}
+      <path d={`M ${w-16},0 L ${w},16 L ${w-16},16 Z`} fill={selected?'#e8d000':'#e8cc00'} />
+      <path d={`M ${w-16},0 L ${w},16`} fill="none" stroke={sel(selected,'#c8b800')} strokeWidth={1} />
+      {/* linhas de texto */}
+      {[20,32,44,56].map((y,i) => <line key={i} x1={8} y1={y} x2={w-20} y2={y} stroke="#d4c400" strokeWidth={0.8} />)}
+      <text x={w/2-8} y={15} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fontWeight="600" fill="#665c00">{(el.label||'Nota...').slice(0,18)}</text>
+      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+    </g>
+  );
+}
+
+// ── Linha do tempo (dente de serra) ──────────────────────────────────────────
+export function TimelineSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 400; const h = 70;
+  // dente de serra decorativo
+  const teethW = 40; const teethCount = Math.floor((w - 60) / (teethW * 2));
+  const teeth = Array.from({length: teethCount}, (_,i) => {
+    const x = 10 + i * teethW * 2;
+    return `M${x},${h-24} L${x+teethW},${h-40} L${x+teethW},${h-24} L${x+teethW*2},${h-40}`;
+  }).join(' ');
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} rx={3} fill={selected?'#e8f0ff':'#f4f6fc'} stroke={sel(selected,'#6070a0')} strokeWidth={selW(selected)} />
+      {/* dente de serra */}
+      <path d={teeth + ` L${10 + teethCount*teethW*2},${h-24}`} fill="none" stroke="#6070a0" strokeWidth={1.5} />
+      <line x1={10} y1={h-24} x2={w-10} y2={h-24} stroke="#9aa0ae" strokeWidth={1} />
+      <text x={12} y={16} fontSize={8} fontWeight="700" fontFamily="Arial" fill="#363b43">Lead time: <tspan fill="#0d3d8c">{el.data.leadtime??0} dias</tspan></text>
+      <text x={12} y={28} fontSize={8} fontWeight="700" fontFamily="Arial" fill="#363b43">Tempo processo: <tspan fill="#0d3d8c">{el.data.tprocess??0} min</tspan></text>
+      <EditBtn onEdit={onEdit} x={w-2} y={4} />
+    </g>
+  );
+}
+
+// ── Legenda ───────────────────────────────────────────────────────────────────
+export function LegendSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 160; const h = 120;
+  const items = [
+    { color: '#3d4451', label: 'Fluxo empurrado' },
+    { color: '#0071e3', label: 'Fluxo puxado' },
+    { color: '#333', label: 'Info manual' },
+    { color: '#0071e3', label: 'Info eletrônica', dash: true },
+  ];
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} rx={3} fill="white" stroke={sel(selected,'#8a9099')} strokeWidth={selW(selected)} />
+      <rect width={w} height={20} rx={3} fill={selected?'#c0c8d8':'#9aa0ae'} />
+      <text x={w/2} y={13} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill="white">{el.label||'Legenda'}</text>
+      {items.map((item,i) => (
+        <g key={i} transform={`translate(8,${26+i*23})`}>
+          <line x1={0} y1={8} x2={28} y2={8} stroke={item.color} strokeWidth={2.5} strokeDasharray={item.dash?'4 2':'none'} />
+          {!item.dash && <polygon points="22,4 30,8 22,12" fill={item.color} />}
+          {item.dash && <polygon points="22,4 30,8 22,12" fill={item.color} />}
+          <text x={34} y={12} fontSize={7} fontFamily="Arial" fill="#363b43">{item.label}</text>
+        </g>
+      ))}
+      <EditBtn onEdit={onEdit} x={w-2} y={4} />
     </g>
   );
 }
