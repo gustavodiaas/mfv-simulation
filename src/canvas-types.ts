@@ -52,9 +52,16 @@ export interface CanvasArrow {
   label?: string;
 }
 
+export interface ScenarioAssumptions {
+  monthlyDemand: number;
+  workdaysPerMonth: number;
+  availableMinutesPerDay: number;
+}
+
 export interface CanvasState {
   elements: CanvasElement[];
   arrows: CanvasArrow[];
+  assumptions: ScenarioAssumptions;
 }
 
 export interface LibraryItem {

@@ -1,6 +1,6 @@
 import type { CanvasElement } from './canvas-types';
 
-interface SymProps { el: CanvasElement; selected: boolean; onEdit: () => void; }
+interface SymProps { el: CanvasElement; selected: boolean; onEdit: () => void; taktTimeSec?: number; }
 
 function sel(selected: boolean, base: string) { return selected ? '#0071e3' : base; }
 function selW(selected: boolean) { return selected ? 2.5 : 1.5; }
@@ -22,8 +22,15 @@ function SelectionRect({ w, h }: { w: number; h: number }) {
 }
 
 // ── Processo ─────────────────────────────────────────────────────────────────
-export function ProcessSymbol({ el, selected, onEdit }: SymProps) {
+export function ProcessSymbol({ el, selected, onEdit, taktTimeSec = 0 }: SymProps) {
   const w = 150; const h = 160;
+  const cycleTime = Math.max(0, Number(el.data.tc) || 0);
+  const setupPerUnit = (Math.max(0, Number(el.data.setup) || 0) * 60) / Math.max(1, Number(el.data.lote) || 1);
+  const availability = Math.min(100, Math.max(1, Number(el.data.disp) || 100)) / 100;
+  const operators = Math.max(1, Number(el.data.op) || 1);
+  const effectiveCycle = (cycleTime + setupPerUnit) / (operators * availability);
+  const loadPercent = taktTimeSec > 0 ? (effectiveCycle / taktTimeSec) * 100 : 0;
+  const overloaded = loadPercent > 100;
   const rows = [
     { k: 'Operadores', v: `${el.data.op ?? 1}` },
     { k: 'T/C', v: `${el.data.tc ?? 0} s` },
@@ -36,8 +43,15 @@ export function ProcessSymbol({ el, selected, onEdit }: SymProps) {
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <rect width={w} height={h} fill="white" stroke={sel(selected,'#7a8494')} strokeWidth={selW(selected)} />
-      <rect width={w} height={38} fill={selected ? '#d6eeff' : '#bfefc0'} />
+      {taktTimeSec > 0 && <g transform="translate(4,-19)">
+        <rect width={92} height={16} rx={8} fill={overloaded ? '#ffe2df' : '#dcf6e7'} stroke={overloaded ? '#ff3b30' : '#1f9d5a'} strokeWidth={0.8} />
+        <circle cx={9} cy={8} r={3} fill={overloaded ? '#ff3b30' : '#1f9d5a'} />
+        <text x={17} y={11} fontSize={7} fontWeight="700" fontFamily="Arial" fill={overloaded ? '#a51f18' : '#126b3b'}>
+          {overloaded ? 'SOBRECARREGADO' : `CARGA ${loadPercent.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%`}
+        </text>
+      </g>}
+      <rect width={w} height={h} fill="white" stroke={selected ? '#0071e3' : overloaded ? '#ff3b30' : '#7a8494'} strokeWidth={selected || overloaded ? 2.5 : 1.5} />
+      <rect width={w} height={38} fill={selected ? '#d6eeff' : overloaded ? '#ffd5d1' : '#bfefc0'} />
       <line x1={0} y1={38} x2={w} y2={38} stroke="#9aa0ae" strokeWidth={1} />
       <text x={w/2} y={16} textAnchor="middle" fontSize={8.5} fontWeight="700" fontFamily="Arial" fill="#1a2a1a">{label.split('\n')[0]}</text>
       {label.split('\n')[1] && <text x={w/2} y={28} textAnchor="middle" fontSize={8} fontFamily="Arial" fill="#1a2a1a">{label.split('\n')[1]}</text>}
@@ -180,7 +194,7 @@ export function SupermarketSymbol({ el, selected, onEdit }: SymProps) {
 }
 
 // ── FIFO ──────────────────────────────────────────────────────────────────────
-export function FifoSymbol({ el, selected, onEdit }: SymProps) {
+export function FifoSymbol({ selected, onEdit }: SymProps) {
   const w = 100; const h = 50;
   return (
     <g>
@@ -291,8 +305,15 @@ export function SequencingBoxSymbol({ el, selected, onEdit }: SymProps) {
 
 // ── Controle de produção ──────────────────────────────────────────────────────
 export function PlanningSymbol({ el, selected, onEdit }: SymProps) {
-  const w = 160; const h = 110;
+  const w = 190; const h = 142;
   const label = el.label || 'Controle da\nProdução';
+  const format = (value: string | number | undefined, digits = 1) => Number(value ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: digits });
+  const rows = [
+    { k: 'Demanda mensal', v: `${format(el.data.demanda, 2)} un` },
+    { k: 'Demanda diária', v: `${format(el.data.demandaDiaria, 2)} un` },
+    { k: 'TAKT time', v: `${format(Number(el.data.takt ?? 0) / 60, 2)} min` },
+    { k: 'Tempo disponível', v: `${format(el.data.minutosDia, 0)} min/dia` },
+  ];
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
@@ -302,11 +323,11 @@ export function PlanningSymbol({ el, selected, onEdit }: SymProps) {
       {label.split('\n').map((ln,i) =>
         <text key={i} x={w/2} y={13+i*12} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill="#122060">{ln}</text>
       )}
-      {[{k:'Demanda',v:`${el.data.demanda??'—'} un/mês`},{k:'Takt time',v:`${el.data.takt??'—'} s`}].map((r,i)=>(
+      {rows.map((r,i)=>(
         <g key={r.k}>
-          <line x1={0} y1={28+(i+1)*22} x2={w} y2={28+(i+1)*22} stroke="#dde0e9" strokeWidth={0.8} />
-          <text x={6} y={28+15+i*22} fontSize={7} fontFamily="Arial" fill="#50575f" fontWeight="700">{r.k}</text>
-          <text x={w-6} y={28+15+i*22} fontSize={7} fontFamily="Arial" fill="#1d2128" fontWeight="700" textAnchor="end">{r.v}</text>
+          <line x1={0} y1={28+(i+1)*28} x2={w} y2={28+(i+1)*28} stroke="#dde0e9" strokeWidth={0.8} />
+          <text x={7} y={28+18+i*28} fontSize={7} fontFamily="Arial" fill="#50575f" fontWeight="700">{r.k}</text>
+          <text x={w-7} y={28+18+i*28} fontSize={7.5} fontFamily="Arial" fill="#1d2128" fontWeight="700" textAnchor="end">{r.v}</text>
         </g>
       ))}
       <EditBtn onEdit={onEdit} x={w-2} y={4} />

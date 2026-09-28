@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  BookOpen, Download, FileImage, FileText, GitCompareArrows,
+  AlertTriangle, BookOpen, Calculator, CheckCircle2, Download, FileImage, FileText, GitCompareArrows,
   ImageDown, Loader2, Map, PanelLeftClose, PanelLeftOpen,
   RotateCcw, Route, Save, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
 import {
   ARROW_KINDS, LIBRARY, makeId,
   type CanvasArrow, type CanvasElement, type CanvasState,
-  type ElementKind, type LibraryItem,
+  type ElementKind, type LibraryItem, type ScenarioAssumptions,
 } from './canvas-types';
 import {
   BufferSymbol, CustomerDemandSymbol, DataBoxSymbol, FifoSymbol,
@@ -19,18 +19,107 @@ import {
   ShippingPointSymbol, SupermarketSymbol, TimelineSymbol, TruckSymbol,
   WorkCellSymbol,
 } from './MfvSymbols';
+import type { Scenario } from './types';
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'mfv-canvas:v2';
+const LEGACY_STORAGE_KEY = 'mfv-simulation:v2';
+const FIXED_PLANNING_ID = '__mfv-demand-planning__';
 type ActiveKind = 'current' | 'future';
+
+const DEFAULT_ASSUMPTIONS: ScenarioAssumptions = {
+  monthlyDemand: 5,
+  workdaysPerMonth: 21,
+  availableMinutesPerDay: 558,
+};
+
+function positiveNumber(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function calculateScenario(assumptions: ScenarioAssumptions) {
+  const dailyDemand = assumptions.monthlyDemand / assumptions.workdaysPerMonth;
+  const taktTimeSec = dailyDemand > 0
+    ? (assumptions.availableMinutesPerDay * 60) / dailyDemand
+    : 0;
+  return { dailyDemand, taktTimeSec };
+}
+
+function calculateProcessLoad(element: CanvasElement, taktTimeSec: number) {
+  const cycleTime = Math.max(0, Number(element.data.tc) || 0);
+  const setupPerUnit = (Math.max(0, Number(element.data.setup) || 0) * 60)
+    / Math.max(1, Number(element.data.lote) || 1);
+  const operators = Math.max(1, Number(element.data.op) || 1);
+  const availability = Math.min(100, Math.max(1, Number(element.data.disp) || 100)) / 100;
+  const effectiveCycleSec = (cycleTime + setupPerUnit) / (operators * availability);
+  const loadPercent = taktTimeSec > 0 ? (effectiveCycleSec / taktTimeSec) * 100 : 0;
+  return { effectiveCycleSec, loadPercent, overloaded: loadPercent > 100 };
+}
+
+function planningData(assumptions: ScenarioAssumptions) {
+  const metrics = calculateScenario(assumptions);
+  return {
+    demanda: assumptions.monthlyDemand,
+    demandaDiaria: metrics.dailyDemand,
+    diasUteis: assumptions.workdaysPerMonth,
+    minutosDia: assumptions.availableMinutesPerDay,
+    takt: metrics.taktTimeSec,
+  };
+}
+
+function createFixedPlanning(assumptions: ScenarioAssumptions): CanvasElement {
+  return {
+    id: FIXED_PLANNING_ID,
+    kind: 'planning',
+    x: 520,
+    y: 30,
+    label: 'Controle da Produção',
+    data: planningData(assumptions),
+  };
+}
+
+function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial<Scenario>): CanvasState {
+  const elements = Array.isArray(raw?.elements) ? raw.elements : [];
+  const existingPlanning = elements.find((element) => element.id === FIXED_PLANNING_ID)
+    ?? elements.find((element) => element.kind === 'planning');
+  const assumptions: ScenarioAssumptions = {
+    monthlyDemand: positiveNumber(raw?.assumptions?.monthlyDemand ?? legacy?.monthlyDemand ?? existingPlanning?.data.demanda, DEFAULT_ASSUMPTIONS.monthlyDemand),
+    workdaysPerMonth: positiveNumber(raw?.assumptions?.workdaysPerMonth ?? legacy?.workdaysPerMonth ?? existingPlanning?.data.diasUteis, DEFAULT_ASSUMPTIONS.workdaysPerMonth),
+    availableMinutesPerDay: positiveNumber(raw?.assumptions?.availableMinutesPerDay ?? legacy?.availableMinutesPerDay ?? existingPlanning?.data.minutosDia, DEFAULT_ASSUMPTIONS.availableMinutesPerDay),
+  };
+  const fixedPlanning = existingPlanning
+    ? { ...existingPlanning, id: FIXED_PLANNING_ID, kind: 'planning' as const, data: planningData(assumptions) }
+    : createFixedPlanning(assumptions);
+  return {
+    elements: [fixedPlanning, ...elements.filter((element) => element !== existingPlanning && element.id !== FIXED_PLANNING_ID)],
+    arrows: Array.isArray(raw?.arrows) ? raw.arrows : [],
+    assumptions,
+  };
+}
 
 function loadCanvases(): Record<ActiveKind, CanvasState> {
   try {
     const s = localStorage.getItem(STORAGE_KEY);
-    if (s) return JSON.parse(s);
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    const legacy = legacyRaw ? JSON.parse(legacyRaw) as { current?: Scenario; future?: Scenario } : undefined;
+    if (s) {
+      const parsed = JSON.parse(s) as Partial<Record<ActiveKind, CanvasState>>;
+      return {
+        current: normalizeCanvas(parsed.current, legacy?.current),
+        future: normalizeCanvas(parsed.future, legacy?.future),
+      };
+    }
+    return {
+      current: normalizeCanvas(undefined, legacy?.current),
+      future: normalizeCanvas(undefined, legacy?.future),
+    };
   } catch { /* ignore */ }
-  return { current: { elements: [], arrows: [] }, future: { elements: [], arrows: [] } };
+  return {
+    current: normalizeCanvas(undefined),
+    future: normalizeCanvas(undefined),
+  };
 }
 
 // ─── Field definitions para cada elemento ────────────────────────────────────
@@ -65,10 +154,10 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
 
 // ─── Render de elemento ───────────────────────────────────────────────────────
 
-function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void) {
+function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void, taktTimeSec: number) {
   const p = { el, selected, onEdit };
   switch (el.kind) {
-    case 'process':             return <ProcessSymbol {...p} />;
+    case 'process':             return <ProcessSymbol {...p} taktTimeSec={taktTimeSec} />;
     case 'work-cell':           return <WorkCellSymbol {...p} />;
     case 'supplier': case 'customer': return <PartySymbol {...p} />;
     case 'truck':               return <TruckSymbol {...p} />;
@@ -147,7 +236,7 @@ function LibraryPanel({ onDragStart }: { onDragStart: (item: LibraryItem, e: Rea
   return (
     <div className="library-panel">
       {groups.map((g) => {
-        const items = LIBRARY.filter((i) => i.group === g);
+        const items = LIBRARY.filter((i) => i.group === g && i.kind !== 'planning');
         const open = !collapsed[g];
         return (
           <div key={g} className="library-group">
@@ -186,7 +275,6 @@ function ArrowShape({ arrow, selected, onClick }: {
 
   const isAdj = arrow.kind === 'arrow-adjustment';
   const isElec = arrow.kind === 'arrow-info-electronic';
-  const isManual = arrow.kind === 'arrow-info-manual';
   const isPull = arrow.kind === 'arrow-pull';
   const isPush = arrow.kind === 'arrow-push';
 
@@ -286,6 +374,92 @@ function ElementPopover({ el, onUpdate, onDelete, onClose }: {
   );
 }
 
+function DemandModal({ assumptions, onSave, onClose }: {
+  assumptions: ScenarioAssumptions;
+  onSave: (next: ScenarioAssumptions) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(assumptions);
+  const metrics = calculateScenario(draft);
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  const setNumber = (key: keyof ScenarioAssumptions, value: string) => {
+    setDraft((previous) => ({ ...previous, [key]: Math.max(0, Number(value) || 0) }));
+  };
+
+  return createPortal(
+    <div className="editor-overlay demand-overlay" role="dialog" aria-modal="true" aria-labelledby="demand-modal-title">
+      <button className="editor-backdrop" onClick={onClose} aria-label="Fechar dados de demanda" />
+      <section className="editor-window demand-modal">
+        <header>
+          <div className="modal-title-row">
+            <div className="modal-symbol"><Calculator size={20} /></div>
+            <div>
+              <span className="scenario-pill current">Simulação</span>
+              <h2 id="demand-modal-title">Demanda e TAKT</h2>
+              <p>Defina a necessidade do cliente e o tempo produtivo disponível.</p>
+            </div>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
+        </header>
+
+        <div className="demand-modal-body">
+          <div className="demand-fields">
+            <label>
+              <span>Demanda mensal</span>
+              <div className="popover-input-wrap">
+                <input type="number" min={0.01} step="any" value={draft.monthlyDemand}
+                  onChange={(event) => setNumber('monthlyDemand', event.target.value)} />
+                <span>un/mês</span>
+              </div>
+            </label>
+            <label>
+              <span>Dias úteis no mês</span>
+              <div className="popover-input-wrap">
+                <input type="number" min={1} step="1" value={draft.workdaysPerMonth}
+                  onChange={(event) => setNumber('workdaysPerMonth', event.target.value)} />
+                <span>dias</span>
+              </div>
+            </label>
+            <label>
+              <span>Tempo disponível por dia</span>
+              <div className="popover-input-wrap">
+                <input type="number" min={1} step="any" value={draft.availableMinutesPerDay}
+                  onChange={(event) => setNumber('availableMinutesPerDay', event.target.value)} />
+                <span>min/dia</span>
+              </div>
+            </label>
+          </div>
+
+          <div className="takt-result-card">
+            <span>TAKT calculado</span>
+            <strong>{metrics.taktTimeSec > 0 ? `${metrics.taktTimeSec.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s` : '—'}</strong>
+            <small>{metrics.taktTimeSec > 0 ? `${(metrics.taktTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} min por unidade` : 'Preencha valores maiores que zero'}</small>
+            <div>
+              <span>Demanda diária</span>
+              <b>{Number.isFinite(metrics.dailyDemand) ? metrics.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—'} un/dia</b>
+            </div>
+          </div>
+        </div>
+
+        <footer className="demand-modal-footer">
+          <p>Ao aplicar, todos os processos do cenário serão comparados automaticamente com o TAKT.</p>
+          <button className="primary-button" disabled={!draft.monthlyDemand || !draft.workdaysPerMonth || !draft.availableMinutesPerDay}
+            onClick={() => onSave(draft)}>
+            <Calculator size={16} />Calcular e aplicar
+          </button>
+        </footer>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
 function ArrowPopover({ arrow, onUpdate, onDelete, onClose }: {
   arrow: CanvasArrow; onUpdate: (p: Partial<CanvasArrow>) => void;
   onDelete: () => void; onClose: () => void;
@@ -355,11 +529,14 @@ export default function App() {
   const [activeKind, setActiveKind] = useState<ActiveKind>('current');
   const [canvases, setCanvases] = useState<Record<ActiveKind,CanvasState>>(loadCanvases);
   const canvas = canvases[activeKind];
+  const scenarioMetrics = calculateScenario(canvas.assumptions);
+  const processElements = canvas.elements.filter((element) => element.kind === 'process');
+  const overloadedProcesses = processElements.filter((element) => calculateProcessLoad(element, scenarioMetrics.taktTimeSec).overloaded);
 
   const setCanvas = useCallback((next: CanvasState | ((p: CanvasState) => CanvasState)) => {
     setCanvases((prev) => {
       const updated = typeof next === 'function' ? next(prev[activeKind]) : next;
-      const result = { ...prev, [activeKind]: updated };
+      const result = { ...prev, [activeKind]: normalizeCanvas(updated) };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
       return result;
     });
@@ -374,7 +551,22 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [saved, setSaved] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
+  const [demandOpen, setDemandOpen] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  useEffect(() => {
+    setSelectedId(null);
+    setEditingEl(null);
+    setEditingArrow(null);
+  }, [activeKind]);
+
+  const openElementEditor = (element: CanvasElement) => {
+    if (element.id === FIXED_PLANNING_ID) {
+      setDemandOpen(true);
+      return;
+    }
+    setEditingEl(element);
+  };
 
   useEffect(() => {
     setSaved(false);
@@ -473,7 +665,8 @@ export default function App() {
       if (!selectedId) return;
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'SELECT') return;
-      setCanvas((p) => ({ elements: p.elements.filter((el) => el.id !== selectedId), arrows: p.arrows.filter((a) => a.id !== selectedId) }));
+      if (selectedId === FIXED_PLANNING_ID) return;
+      setCanvas((p) => ({ ...p, elements: p.elements.filter((el) => el.id !== selectedId), arrows: p.arrows.filter((a) => a.id !== selectedId) }));
       setSelectedId(null);
     };
     window.addEventListener('keydown', h);
@@ -485,7 +678,8 @@ export default function App() {
     if (editingEl?.id === id) setEditingEl((p) => p ? { ...p, ...patch } : p);
   };
   const deleteEl = (id: string) => {
-    setCanvas((p) => ({ elements: p.elements.filter((el) => el.id!==id), arrows: p.arrows.filter((a) => a.id!==id) }));
+    if (id === FIXED_PLANNING_ID) return;
+    setCanvas((p) => ({ ...p, elements: p.elements.filter((el) => el.id!==id), arrows: p.arrows.filter((a) => a.id!==id) }));
     setEditingEl(null); setSelectedId(null);
   };
   const updateArrow = (id: string, patch: Partial<CanvasArrow>) => {
@@ -495,6 +689,17 @@ export default function App() {
   const deleteArrow = (id: string) => {
     setCanvas((p) => ({ ...p, arrows: p.arrows.filter((a) => a.id!==id) }));
     setEditingArrow(null); setSelectedId(null);
+  };
+
+  const saveAssumptions = (assumptions: ScenarioAssumptions) => {
+    setCanvas((previous) => ({
+      ...previous,
+      assumptions,
+      elements: previous.elements.map((element) => element.id === FIXED_PLANNING_ID
+        ? { ...element, data: planningData(assumptions) }
+        : element),
+    }));
+    setDemandOpen(false);
   };
 
   return (
@@ -517,6 +722,9 @@ export default function App() {
           <button className={activeKind==='future'?'active future':''} onClick={() => setActiveKind('future')} title="Estado futuro">
             <GitCompareArrows size={18} /><span>Estado futuro</span>
           </button>
+          <button className="demand-nav-button" onClick={() => setDemandOpen(true)} title="Dados de demanda e TAKT">
+            <Calculator size={18} /><span>Demanda e TAKT</span>
+          </button>
         </nav>
 
         {!sidebarCollapsed && <LibraryPanel onDragStart={onLibDragStart} />}
@@ -524,7 +732,7 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="save-state"><Save size={14} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div>
           <button onClick={() => setExportOpen(true)}><Download size={17} /><span>Exportar</span></button>
-          <button onClick={() => { if (window.confirm('Limpar canvas?')) { setCanvas({ elements: [], arrows: [] }); setSelectedId(null); } }}>
+          <button onClick={() => { if (window.confirm('Limpar os elementos do canvas? A caixa de demanda será mantida.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => element.id === FIXED_PLANNING_ID), arrows: [] })); setSelectedId(null); } }}>
             <RotateCcw size={17} /><span>Limpar</span>
           </button>
         </div>
@@ -539,6 +747,14 @@ export default function App() {
             <p>Arraste elementos da biblioteca · duplo clique para editar · <kbd style={{background:'rgba(0,0,0,.08)',padding:'1px 5px',borderRadius:4,fontSize:9}}>Delete</kbd> para remover</p>
           </div>
           <div className="header-actions">
+            <div className="simulation-summary">
+              <div><span>Demanda diária</span><strong>{scenarioMetrics.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un</strong></div>
+              <div><span>TAKT</span><strong>{(scenarioMetrics.taktTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} min</strong></div>
+              <div className={overloadedProcesses.length ? 'summary-critical' : 'summary-ok'}>
+                {overloadedProcesses.length ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
+                <span>{overloadedProcesses.length ? `${overloadedProcesses.length} processo(s) crítico(s)` : processElements.length ? 'Processos atendem' : 'Adicione processos'}</span>
+              </div>
+            </div>
             <div className="zoom-controls">
               <button onClick={() => setZoom(z => Math.max(0.15, z*.85))}><ZoomOut size={15}/></button>
               <span>{Math.round(zoom*100)}%</span>
@@ -551,10 +767,10 @@ export default function App() {
           </div>
         </header>
 
-        {canvas.elements.length===0 && canvas.arrows.length===0 && (
+        {canvas.elements.every((element) => element.id === FIXED_PLANNING_ID) && canvas.arrows.length===0 && (
           <div className="canvas-empty-hint">
             <BookOpen size={32}/>
-            <strong>Canvas em branco</strong>
+            <strong>Comece pelo fluxo</strong>
             <p>Arraste elementos da biblioteca à esquerda para montar o MFV.</p>
           </div>
         )}
@@ -590,8 +806,8 @@ export default function App() {
               <g key={el.id} transform={`translate(${el.x},${el.y})`}
                 style={{ cursor:'move', userSelect:'none' }}
                 onMouseDown={(e) => onElMouseDown(e, el.id)}
-                onDoubleClick={(e) => { e.stopPropagation(); setEditingEl(el); }}>
-                {renderElement(el, selectedId===el.id, () => setEditingEl(el))}
+                onDoubleClick={(e) => { e.stopPropagation(); openElementEditor(el); }}>
+                {renderElement(el, selectedId===el.id, () => openElementEditor(el), scenarioMetrics.taktTimeSec)}
               </g>
             ))}
           </g>
@@ -599,7 +815,9 @@ export default function App() {
 
         {selectedId && (
           <div className="canvas-delete-hint">
-            Pressione <kbd>Delete</kbd> para remover · duplo clique para editar
+            {selectedId === FIXED_PLANNING_ID
+              ? <>Caixa fixa do cenário · arraste para mover · duplo clique para editar</>
+              : <>Pressione <kbd>Delete</kbd> para remover · duplo clique para editar</>}
           </div>
         )}
       </main>
@@ -617,6 +835,7 @@ export default function App() {
           onClose={() => setEditingArrow(null)} />
       )}
       {exportOpen && <ExportModal svgRef={svgRef} name={activeKind==='current'?'Estado_Atual':'Estado_Futuro'} onClose={() => setExportOpen(false)} />}
+      {demandOpen && <DemandModal assumptions={canvas.assumptions} onSave={saveAssumptions} onClose={() => setDemandOpen(false)} />}
     </div>
   );
 }
