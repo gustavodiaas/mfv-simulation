@@ -1,4 +1,5 @@
 import type { CanvasElement } from './canvas-types';
+import truckThreeQuarter from './assets/truck-three-quarter.png';
 
 interface SymProps {
   el: CanvasElement;
@@ -130,40 +131,23 @@ export function PartySymbol({ el, selected, onEdit }: SymProps) {
 
 // ── Caminhão ──────────────────────────────────────────────────────────────────
 export function TruckSymbol({ el, selected, onEdit }: SymProps) {
-  const w = 180; const h = 100;
+  const w = 210; const h = 130;
   const color = String(el.data.color ?? '#eee9df');
+  const filterId = `truck-tint-${el.id}`;
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      {/* Baú alto, sem marca ou inscrição lateral. */}
-      <path d="M4 22 L101 8 L108 13 L108 66 L4 66 Z" fill={color} stroke={sel(selected,'#25282d')} strokeWidth={selW(selected)} />
-      <path d="M8 25 L99 13" stroke="white" strokeWidth={2.5} opacity={0.7} />
-      <path d="M4 60 H108" stroke="#8b7b5d" strokeWidth={5} opacity={0.8} />
-      <path d="M7 66 H111" stroke="#30343a" strokeWidth={3} />
-
-      {/* Cabine frontal arredondada inspirada no caminhão de referência. */}
-      <path d="M105 27 Q117 13 138 14 Q154 15 163 29 L169 49 L176 54 L176 67 L104 67 Z"
-        fill={color} stroke={sel(selected,'#25282d')} strokeWidth={selW(selected)} />
-      <path d="M116 24 Q136 17 151 24 L158 41 L124 41 Z" fill="#163247" stroke="#25282d" strokeWidth={1.8} />
-      <path d="M149 24 L158 41 H150 L144 23 Z" fill="#345d78" opacity={0.7} />
-      <rect x={109} y={29} width={10} height={25} rx={2} fill="#20252a" stroke="#111317" strokeWidth={1.2} />
-      <path d="M119 45 L122 45 L122 60 L111 60" fill="none" stroke="#3c4046" strokeWidth={1.5} />
-      <path d="M158 43 Q169 43 172 50 L174 58 H155 Z" fill={color} stroke="#25282d" strokeWidth={1.5} />
-      <rect x={159} y={48} width={13} height={15} rx={2.5} fill="#25292e" />
-      {[50, 54, 58].map((y) => <line key={y} x1={161} y1={y} x2={170} y2={y} stroke="#78808a" strokeWidth={0.8} />)}
-      <path d="M166 61 H178 V69 H154" fill="none" stroke="#30343a" strokeWidth={3} />
-      <rect x={151} y={52} width={7} height={5} rx={1.5} fill="#ffc04a" stroke="#6d4b10" strokeWidth={0.8} />
-
-      {/* Chassi, tanque e conjunto de rodas. */}
-      <path d="M18 69 H157" stroke="#353a40" strokeWidth={4} />
-      <rect x={105} y={61} width={27} height={11} rx={4} fill="#b9c0c7" stroke="#454b52" strokeWidth={1.2} />
-      <line x1={111} y1={63} x2={111} y2={70} stroke="#7d858d" strokeWidth={1} />
-      {[35, 78].map((x) => <g key={x}><circle cx={x} cy={70} r={12} fill="#202328" stroke="#0f1114" strokeWidth={1.5}/><circle cx={x} cy={70} r={5.5} fill="#b9c0c7" stroke="#5d646c"/><circle cx={x} cy={70} r={2} fill="#575e65"/></g>)}
-      <g><circle cx={143} cy={70} r={14} fill="#202328" stroke="#0f1114" strokeWidth={1.5}/><circle cx={143} cy={70} r={6.5} fill="#c4cbd1" stroke="#5d646c"/><circle cx={143} cy={70} r={2.2} fill="#575e65"/></g>
-
-      {el.label && <text x={90} y={91} textAnchor="middle" fontSize={8} fontFamily="Arial" fill="#34383e" fontWeight="700">{el.label}</text>}
-      {el.data.freq && <text x={90} y={99} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#6b7178">a cada {el.data.freq} dia(s)</text>}
-      <EditBtn onEdit={onEdit} x={w-2} y={2} />
+      <defs>
+        <filter id={filterId} x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
+          <feFlood floodColor={color} floodOpacity={0.72} result="tint" />
+          <feComposite in="tint" in2="SourceGraphic" operator="in" result="tintedShape" />
+          <feBlend in="SourceGraphic" in2="tintedShape" mode="multiply" />
+        </filter>
+      </defs>
+      <image href={truckThreeQuarter} x={2} y={2} width={206} height={108} preserveAspectRatio="xMidYMid meet" filter={`url(#${filterId})`} />
+      {el.label && <text x={w/2} y={120} textAnchor="middle" fontSize={8} fontFamily="Arial" fill="#34383e" fontWeight="700">{el.label}</text>}
+      {el.data.freq && <text x={w/2} y={129} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#6b7178">a cada {el.data.freq} dia(s)</text>}
+      <EditBtn onEdit={onEdit} x={w-2} y={5} />
     </g>
   );
 }

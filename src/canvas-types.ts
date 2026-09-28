@@ -117,7 +117,7 @@ export const LIBRARY: LibraryItem[] = [
   { kind: 'supermarket',       label: 'Supermercado',       group: 'material',   defaultLabel: 'Supermercado',        defaultData: { qty: 0 },                                       w: 80,  h: 70  },
   { kind: 'fifo',              label: 'Fila FIFO',          group: 'material',   defaultLabel: 'FIFO',                defaultData: { qty: 0 },                                       w: 100, h: 50  },
   // ── Logística
-  { kind: 'truck',             label: 'Caminhão',           group: 'logistica',  defaultLabel: 'Entrega',             defaultData: { freq: 1, color: '#eee9df' },                    w: 180, h: 100 },
+  { kind: 'truck',             label: 'Caminhão',           group: 'logistica',  defaultLabel: 'Entrega',             defaultData: { freq: 1, color: '#eee9df' },                    w: 210, h: 130 },
   { kind: 'transport-air',     label: 'Transporte aéreo',   group: 'logistica',  defaultLabel: 'Aéreo',               defaultData: { freq: 1 },                                      w: 100, h: 54  },
   { kind: 'transport-ship',    label: 'Transporte marítimo', group: 'logistica', defaultLabel: 'Marítimo',            defaultData: { freq: 1 },                                      w: 105, h: 58  },
   { kind: 'forklift',          label: 'Empilhadeira',       group: 'logistica',  defaultLabel: 'Movimentação',        defaultData: { distance: 0 },                                  w: 90,  h: 58  },

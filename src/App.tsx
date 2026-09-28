@@ -22,6 +22,7 @@ import {
 } from './MfvSymbols';
 import { exportJPEG, exportPDF, exportSVG, type PaperSize } from './export';
 import type { Scenario } from './types';
+import truckThreeQuarter from './assets/truck-three-quarter.png';
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
@@ -351,7 +352,7 @@ function LibraryThumb({ kind }: { kind: ElementKind }) {
     <svg width={S} height={S} viewBox={`0 0 ${S} ${S}`} style={{ overflow: 'visible' }}>
       {kind === 'process' && (<g transform="scale(0.275) translate(2,2)"><rect width={150} height={100} fill="white" stroke="#7a8494" strokeWidth={2}/><rect width={150} height={35} fill="#bfefc0"/><text x={75} y={22} textAnchor="middle" fontSize={16} fontWeight="700" fontFamily="Arial" fill="#1a2a1a">Processo</text></g>)}
       {(kind==='supplier'||kind==='customer') && (<g transform="scale(0.35) translate(2,2)"><rect width={120} height={80} fill={kind==='customer'?'#b8ccf5':'#a8bcf0'} stroke="#6a80cc" strokeWidth={2}/><rect x={8} y={10} width={22} height={18} fill="none" stroke="#1a2560" strokeWidth={1}/><polygon points="8,10 19,4 30,10" fill="#1a2560"/><text x={60} y={52} textAnchor="middle" fontSize={16} fontWeight="700" fontFamily="Arial" fill="#122060">{kind==='customer'?'Cliente':'Fornec.'}</text></g>)}
-      {kind==='truck' && (<g transform="scale(0.235) translate(3,36)"><path d="M4 18 L104 7 L111 12 L111 64 L4 64 Z" fill="#eee9df" stroke="#25282d" strokeWidth={2}/><path d="M107 25 Q119 12 141 14 Q154 15 162 27 L168 48 L176 53 L176 66 L105 66 Z" fill="#eee9df" stroke="#25282d" strokeWidth={2}/><path d="M119 22 Q137 17 151 24 L157 39 L125 39 Z" fill="#173349" stroke="#25282d" strokeWidth={2}/><rect x="158" y="41" width="15" height="17" rx="2" fill="#24282d"/><circle cx="37" cy="68" r="11" fill="#202328"/><circle cx="37" cy="68" r="5" fill="#aeb4bb"/><circle cx="83" cy="68" r="11" fill="#202328"/><circle cx="83" cy="68" r="5" fill="#aeb4bb"/><circle cx="143" cy="68" r="13" fill="#202328"/><circle cx="143" cy="68" r="6" fill="#aeb4bb"/><path d="M4 60 H109 M106 48 H122" stroke="#8b7b5d" strokeWidth={4}/></g>)}
+      {kind==='truck' && <image href={truckThreeQuarter} x={1} y={8} width={42} height={27} preserveAspectRatio="xMidYMid meet" />}
       {kind==='shipping-point' && (<g transform="scale(0.42) translate(2,2)"><rect width={100} height={70} rx={4} fill="#e8f0ff" stroke="#4a6ab0" strokeWidth={2}/><rect x={30} y={10} width={40} height={30} fill="none" stroke="#2a4a90" strokeWidth={2}/><polygon points="50,10 60,16 60,22 50,28 40,22 40,16" fill="#a8bcf0" stroke="#2a4a90" strokeWidth={1}/></g>)}
       {kind==='inventory' && (<polygon points="22,4 42,38 2,38" fill="#f0ce40" stroke="#b89020" strokeWidth={2}/>)}
       {kind==='buffer' && (<g><rect width={44} height={36} rx={3} fill="#fff3cc" stroke="#cc8800" strokeWidth={1.5} strokeDasharray="4 2" y={4}/><text x={22} y={26} textAnchor="middle" fontSize={16} fontWeight="900" fontFamily="Arial" fill="#cc8800">B</text></g>)}
