@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AlertTriangle, BookOpen, Calculator, CheckCircle2, Download, FileImage, FileText, GitCompareArrows,
-  ImageDown, Loader2, Map, PanelLeftClose, PanelLeftOpen,
+  AlertTriangle, BookOpen, Calculator, CheckCircle2, Copy, Download, FileImage, FileText, GitCompareArrows,
+  ImageDown, LayoutTemplate, Loader2, Map, PanelLeftClose, PanelLeftOpen,
   RotateCcw, Route, Save, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
 import {
@@ -11,7 +11,7 @@ import {
   type ElementKind, type LibraryItem, type ScenarioAssumptions,
 } from './canvas-types';
 import {
-  BufferSymbol, CustomerDemandSymbol, DataBoxSymbol, FifoSymbol,
+  BufferSymbol, CustomerDemandSymbol, DataBoxSymbol, ExtendedSymbol, FifoSymbol,
   HeijunkaSymbol, InterventionSymbol, InventorySymbol, KaizenSymbol,
   KanbanBoardSymbol, KanbanProductionSymbol, KanbanWithdrawalSymbol,
   LegendSymbol, NoteSymbol, OperatorSymbol, PartySymbol, PlanningSymbol,
@@ -51,11 +51,49 @@ function calculateProcessLoad(element: CanvasElement, taktTimeSec: number) {
   const cycleTime = Math.max(0, Number(element.data.tc) || 0);
   const setupPerUnit = (Math.max(0, Number(element.data.setup) || 0) * 60)
     / Math.max(1, Number(element.data.lote) || 1);
-  const operators = Math.max(1, Number(element.data.op) || 1);
+  const resources = Math.max(1, Number(element.data.recurso) || 1);
   const availability = Math.min(100, Math.max(1, Number(element.data.disp) || 100)) / 100;
-  const effectiveCycleSec = (cycleTime + setupPerUnit) / (operators * availability);
+  const effectiveCycleSec = (cycleTime + setupPerUnit) / (resources * availability);
   const loadPercent = taktTimeSec > 0 ? (effectiveCycleSec / taktTimeSec) * 100 : 0;
-  return { effectiveCycleSec, loadPercent, overloaded: loadPercent > 100 };
+  const valid = cycleTime > 0;
+  return { effectiveCycleSec, loadPercent, valid, overloaded: valid && loadPercent > 100 };
+}
+
+function calculateCanvasSimulation(canvas: CanvasState) {
+  const { dailyDemand, taktTimeSec } = calculateScenario(canvas.assumptions);
+  const processElements = canvas.elements.filter((element) => ['process','shared-process'].includes(element.kind));
+  const processMetrics = processElements.map((element) => {
+    const load = calculateProcessLoad(element, taktTimeSec);
+    const capacityPerDay = load.effectiveCycleSec > 0
+      ? (canvas.assumptions.availableMinutesPerDay * 60) / load.effectiveCycleSec
+      : Infinity;
+    return { element, ...load, capacityPerDay };
+  });
+  const finiteCapacities = processMetrics.map((metric) => metric.capacityPerDay).filter(Number.isFinite);
+  const bottleneckCapacity = finiteCapacities.length ? Math.min(...finiteCapacities) : 0;
+  const bottleneck = processMetrics.find((metric) => metric.capacityPerDay === bottleneckCapacity)?.element;
+  const stockKinds: ElementKind[] = ['inventory','safety-stock','raw-material','finished-goods','buffer','supermarket','fifo'];
+  const totalInventory = canvas.elements
+    .filter((element) => stockKinds.includes(element.kind))
+    .reduce((sum, element) => sum + Math.max(0, Number(element.data.qty) || 0), 0);
+  const inventoryDays = dailyDemand > 0 ? totalInventory / dailyDemand : 0;
+  const processingTimeMin = processElements.reduce((sum, element) => sum + Math.max(0, Number(element.data.tc) || 0), 0) / 60;
+  const processingDays = canvas.assumptions.availableMinutesPerDay > 0
+    ? processingTimeMin / canvas.assumptions.availableMinutesPerDay
+    : 0;
+  return {
+    dailyDemand,
+    taktTimeSec,
+    processElements,
+    processMetrics,
+    invalidProcesses: processMetrics.filter((metric) => !metric.valid),
+    overloadedProcesses: processMetrics.filter((metric) => metric.overloaded),
+    bottleneckCapacity,
+    bottleneck,
+    inventoryDays,
+    processingTimeMin,
+    leadTimeDays: inventoryDays + processingDays,
+  };
 }
 
 function planningData(assumptions: ScenarioAssumptions) {
@@ -99,6 +137,54 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
   };
 }
 
+function createExcelTemplate(assumptions: ScenarioAssumptions, scenario: ActiveKind): CanvasState {
+  const processSpecs = [
+    ['Posicionar caixa na esteira', 690],
+    ['Início da montagem da caixa', 1620],
+    ['Finalizar montagem e fechamento', 2160],
+    ['Passar fita de fechamento', 450],
+    ['Túnel de embalamento', 1980],
+    ['Colagem de adesivo e empilhamento', 900],
+  ] as const;
+  const fixedPlanning = { ...createFixedPlanning(assumptions), x: 660, y: 20 };
+  const processes = processSpecs.map(([label, tc], index): CanvasElement => ({
+    id: `${scenario}-process-${index + 1}-${makeId()}`,
+    kind: 'process',
+    x: 220 + index * 210,
+    y: 250,
+    label,
+    data: { tc, setup: 0, lote: 1, op: 1, recurso: 1, disp: 100 },
+  }));
+  const inventories = processSpecs.map((_, index): CanvasElement => ({
+    id: `${scenario}-inventory-${index + 1}-${makeId()}`,
+    kind: 'inventory',
+    x: 382 + index * 210,
+    y: 325,
+    label: `Estoque ${index + 1}`,
+    data: { qty: 0 },
+  }));
+  const supplier: CanvasElement = { id: `${scenario}-supplier-${makeId()}`, kind: 'supplier', x: 70, y: 25, label: 'Fornecedor', data: { freq: 1 } };
+  const customer: CanvasElement = { id: `${scenario}-customer-${makeId()}`, kind: 'customer', x: 1380, y: 25, label: 'Cliente final', data: { freq: 1 } };
+  const rawMaterial: CanvasElement = { id: `${scenario}-raw-${makeId()}`, kind: 'raw-material', x: 45, y: 275, label: 'Matéria-prima', data: { qty: 0 } };
+  const shipping: CanvasElement = { id: `${scenario}-shipping-${makeId()}`, kind: 'shipping-point', x: 1510, y: 285, label: 'Expedição', data: {} };
+  const timeline: CanvasElement = { id: `${scenario}-timeline-${makeId()}`, kind: 'timeline', x: 515, y: 500, label: '', data: {} };
+  const materialNodes = [rawMaterial, ...processes, shipping];
+  const materialArrows = materialNodes.slice(0, -1).map((node, index): CanvasArrow => {
+    const next = materialNodes[index + 1];
+    const nodeWidth = node.kind === 'raw-material' ? 110 : 150;
+    return { id: `${scenario}-flow-${index}-${makeId()}`, kind: 'arrow-push', x1: node.x + nodeWidth, y1: node.y + 75, x2: next.x - 10, y2: next.y + 75 };
+  });
+  const informationArrows: CanvasArrow[] = [
+    { id: `${scenario}-info-supplier-${makeId()}`, kind: 'arrow-info-manual', x1: fixedPlanning.x, y1: fixedPlanning.y + 65, x2: supplier.x + 120, y2: supplier.y + 40, label: 'Programação' },
+    { id: `${scenario}-info-customer-${makeId()}`, kind: 'arrow-info-electronic', x1: customer.x, y1: customer.y + 40, x2: fixedPlanning.x + 190, y2: fixedPlanning.y + 65, label: 'Demanda' },
+  ];
+  return normalizeCanvas({
+    assumptions,
+    elements: [fixedPlanning, supplier, customer, rawMaterial, ...processes, ...inventories, shipping, timeline],
+    arrows: [...materialArrows, ...informationArrows],
+  });
+}
+
 function loadCanvases(): Record<ActiveKind, CanvasState> {
   try {
     const s = localStorage.getItem(STORAGE_KEY);
@@ -125,13 +211,20 @@ function loadCanvases(): Record<ActiveKind, CanvasState> {
 // ─── Field definitions para cada elemento ────────────────────────────────────
 
 const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type?: string; suffix?: string }[]>> = {
-  process:              [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'setup', label: 'Setup', suffix: 'min' },{ key: 'lote', label: 'Lote', suffix: 'un' },{ key: 'op', label: 'Operadores', suffix: 'pess.' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' },{ key: 'wip', label: 'Estoque após', suffix: 'un' }],
+  process:              [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'setup', label: 'Setup', suffix: 'min' },{ key: 'lote', label: 'Lote', suffix: 'un' },{ key: 'op', label: 'Operadores', suffix: 'pess.' },{ key: 'recurso', label: 'Recursos paralelos', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' }],
+  'shared-process':     [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'setup', label: 'Setup', suffix: 'min' },{ key: 'lote', label: 'Lote', suffix: 'un' },{ key: 'op', label: 'Operadores', suffix: 'pess.' },{ key: 'recurso', label: 'Recursos paralelos', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' }],
+  machine:              [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'recurso', label: 'Quantidade', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' }],
+  inspection:           [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'op', label: 'Operadores', suffix: 'pess.' }],
   'work-cell':          [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'op', label: 'Operadores', suffix: 'pess.' }],
   supplier:             [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'freq', label: 'Frequência entrega', suffix: 'dias' }],
   customer:             [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'freq', label: 'Frequência expedição', suffix: 'dias' }],
   truck:                [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
   'shipping-point':     [{ key: 'label', label: 'Rótulo', type: 'text' }],
-  inventory:            [{ key: 'qty', label: 'Quantidade', suffix: 'un' },{ key: 'dias', label: 'Cobertura', suffix: 'dias' }],
+  inventory:            [{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
+  'safety-stock':       [{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
+  'raw-material':       [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
+  'finished-goods':     [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
+  warehouse:            [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   buffer:               [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   supermarket:          [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   fifo:                 [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
@@ -144,20 +237,41 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
   'data-box':           [{ key: 'label', label: 'Título', type: 'text' },{ key: 'tc', label: 'T/C', suffix: 's' },{ key: 'tcp', label: 'TCP', suffix: 's' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' },{ key: 'turnos', label: 'Turnos' }],
   'customer-demand':    [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' },{ key: 'periodo', label: 'Período', suffix: 'dias' }],
   'production-schedule':[{ key: 'label', label: 'Título', type: 'text' }],
+  'erp-system':         [{ key: 'label', label: 'Nome do sistema', type: 'text' }],
+  'go-see':             [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
+  'transport-air':      [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
+  'transport-ship':     [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
+  forklift:             [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'distance', label: 'Distância', suffix: 'm' }],
+  'milk-run':           [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
+  distance:             [{ key: 'distance', label: 'Distância', suffix: 'm' }],
+  'quality-problem':    [{ key: 'label', label: 'Descrição', type: 'text' },{ key: 'qty', label: 'Ocorrências', suffix: 'un' }],
+  bottleneck:           [{ key: 'label', label: 'Descrição', type: 'text' }],
+  'signal-kanban':      [{ key: 'qty', label: 'Quantidade de cartões', suffix: 'un' }],
+  'kanban-post':        [{ key: 'label', label: 'Título', type: 'text' },{ key: 'qty', label: 'Quantidade de cartões', suffix: 'un' }],
+  'sequenced-pull':     [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'pitch', label: 'Pitch', suffix: 'min' }],
   operator:             [{ key: 'qty', label: 'Quantidade', suffix: 'pess.' }],
   kaizen:               [{ key: 'label', label: 'Texto', type: 'text' }],
   intervention:         [{ key: 'label', label: 'Texto', type: 'text' }],
   note:                 [{ key: 'label', label: 'Texto', type: 'text' }],
-  timeline:             [{ key: 'label', label: 'Descrição', type: 'text' },{ key: 'leadtime', label: 'Lead time', suffix: 'dias' },{ key: 'tprocess', label: 'Tempo processo', suffix: 'min' }],
+  timeline:             [{ key: 'label', label: 'Descrição', type: 'text' }],
   legend:               [{ key: 'label', label: 'Título', type: 'text' }],
 };
 
 // ─── Render de elemento ───────────────────────────────────────────────────────
 
-function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void, taktTimeSec: number) {
-  const p = { el, selected, onEdit };
+function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void, simulation: ReturnType<typeof calculateCanvasSimulation>, availableMinutesPerDay: number) {
+  const p = {
+    el,
+    selected,
+    onEdit,
+    taktTimeSec: simulation.taktTimeSec,
+    dailyDemand: simulation.dailyDemand,
+    availableMinutesPerDay,
+    leadTimeDays: simulation.leadTimeDays,
+    processingTimeMin: simulation.processingTimeMin,
+  };
   switch (el.kind) {
-    case 'process':             return <ProcessSymbol {...p} taktTimeSec={taktTimeSec} />;
+    case 'process':             return <ProcessSymbol {...p} />;
     case 'work-cell':           return <WorkCellSymbol {...p} />;
     case 'supplier': case 'customer': return <PartySymbol {...p} />;
     case 'truck':               return <TruckSymbol {...p} />;
@@ -181,7 +295,7 @@ function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void,
     case 'note':                return <NoteSymbol {...p} />;
     case 'timeline':            return <TimelineSymbol {...p} />;
     case 'legend':              return <LegendSymbol {...p} />;
-    default:                    return null;
+    default:                    return <ExtendedSymbol {...p} />;
   }
 }
 
@@ -219,6 +333,7 @@ function LibraryThumb({ kind }: { kind: ElementKind }) {
       {kind==='arrow-info-manual' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#333" strokeWidth={2}/><polygon points="34,12 42,18 34,22" fill="#333"/></g>)}
       {kind==='arrow-info-electronic' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#0071e3" strokeWidth={2} strokeDasharray="4 3"/><polygon points="19,10 16,19 20,19 17,28 25,17 21,17" fill="#0071e3"/><polygon points="34,12 42,18 34,22" fill="#0071e3"/></g>)}
       {kind==='arrow-adjustment' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#cc4400" strokeWidth={2} strokeDasharray="2 2"/><polygon points="34,12 42,18 34,22" fill="#cc4400"/><circle cx={4} cy={36} r={3} fill="#cc4400"/></g>)}
+      <g transform="scale(.3)"><ExtendedSymbol el={{ id:'thumb', kind, x:0, y:0, label:'', data:{} }} selected={false} onEdit={() => undefined} /></g>
     </svg>
   );
 }
@@ -226,13 +341,13 @@ function LibraryThumb({ kind }: { kind: ElementKind }) {
 // ─── Biblioteca lateral ───────────────────────────────────────────────────────
 
 const GROUP_LABELS: Record<string, string> = {
-  material: 'Material', kanban: 'Kanban', informacao: 'Informação',
+  material: 'Material e processo', logistica: 'Logística', kanban: 'Kanban', informacao: 'Informação',
   operador: 'Operador', fluxo: 'Setas / Fluxo', anotacao: 'Anotação',
 };
 
 function LibraryPanel({ onDragStart }: { onDragStart: (item: LibraryItem, e: React.DragEvent) => void }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const groups = ['material','kanban','informacao','operador','fluxo','anotacao'];
+  const groups = ['material','logistica','kanban','informacao','operador','fluxo','anotacao'];
   return (
     <div className="library-panel">
       {groups.map((g) => {
@@ -529,9 +644,7 @@ export default function App() {
   const [activeKind, setActiveKind] = useState<ActiveKind>('current');
   const [canvases, setCanvases] = useState<Record<ActiveKind,CanvasState>>(loadCanvases);
   const canvas = canvases[activeKind];
-  const scenarioMetrics = calculateScenario(canvas.assumptions);
-  const processElements = canvas.elements.filter((element) => element.kind === 'process');
-  const overloadedProcesses = processElements.filter((element) => calculateProcessLoad(element, scenarioMetrics.taktTimeSec).overloaded);
+  const simulation = calculateCanvasSimulation(canvas);
 
   const setCanvas = useCallback((next: CanvasState | ((p: CanvasState) => CanvasState)) => {
     setCanvases((prev) => {
@@ -702,6 +815,23 @@ export default function App() {
     setDemandOpen(false);
   };
 
+  const copyCurrentToFuture = () => {
+    if (!window.confirm('Substituir o Estado Futuro por uma cópia completa do Estado Atual?')) return;
+    setCanvases((previous) => {
+      const clone = JSON.parse(JSON.stringify(previous.current)) as CanvasState;
+      const result = { ...previous, future: normalizeCanvas(clone) };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+      return result;
+    });
+    setSelectedId(null);
+  };
+
+  const applyExcelTemplate = () => {
+    if (!window.confirm('Substituir este cenário pelo modelo base inspirado no Excel? Os dados atuais deste cenário serão removidos.')) return;
+    setCanvas((previous) => createExcelTemplate(previous.assumptions, activeKind));
+    setSelectedId(null);
+  };
+
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       {/* Sidebar */}
@@ -731,6 +861,7 @@ export default function App() {
 
         <div className="sidebar-bottom">
           <div className="save-state"><Save size={14} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div>
+          <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
           <button onClick={() => setExportOpen(true)}><Download size={17} /><span>Exportar</span></button>
           <button onClick={() => { if (window.confirm('Limpar os elementos do canvas? A caixa de demanda será mantida.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => element.id === FIXED_PLANNING_ID), arrows: [] })); setSelectedId(null); } }}>
             <RotateCcw size={17} /><span>Limpar</span>
@@ -748,13 +879,21 @@ export default function App() {
           </div>
           <div className="header-actions">
             <div className="simulation-summary">
-              <div><span>Demanda diária</span><strong>{scenarioMetrics.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un</strong></div>
-              <div><span>TAKT</span><strong>{(scenarioMetrics.taktTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} min</strong></div>
-              <div className={overloadedProcesses.length ? 'summary-critical' : 'summary-ok'}>
-                {overloadedProcesses.length ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
-                <span>{overloadedProcesses.length ? `${overloadedProcesses.length} processo(s) crítico(s)` : processElements.length ? 'Processos atendem' : 'Adicione processos'}</span>
+              <div><span>Demanda diária</span><strong>{simulation.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un</strong></div>
+              <div><span>TAKT</span><strong>{(simulation.taktTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} min</strong></div>
+              <div title={simulation.bottleneck ? `Gargalo: ${simulation.bottleneck.label}` : undefined}><span>Capacidade da linha</span><strong>{simulation.bottleneckCapacity ? `${simulation.bottleneckCapacity.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un/dia` : '—'}</strong></div>
+              <div className={simulation.invalidProcesses.length ? 'summary-warning' : simulation.overloadedProcesses.length ? 'summary-critical' : 'summary-ok'}>
+                {simulation.invalidProcesses.length || simulation.overloadedProcesses.length ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
+                <span>{simulation.invalidProcesses.length
+                  ? `${simulation.invalidProcesses.length} processo(s) sem T/C`
+                  : simulation.overloadedProcesses.length
+                    ? `${simulation.overloadedProcesses.length} processo(s) crítico(s)`
+                    : simulation.processElements.length ? 'Processos atendem' : 'Adicione processos'}</span>
               </div>
             </div>
+            {activeKind === 'future' && <button className="quiet-button copy-scenario-button" onClick={copyCurrentToFuture}>
+              <Copy size={15}/>Copiar estado atual
+            </button>}
             <div className="zoom-controls">
               <button onClick={() => setZoom(z => Math.max(0.15, z*.85))}><ZoomOut size={15}/></button>
               <span>{Math.round(zoom*100)}%</span>
@@ -807,7 +946,7 @@ export default function App() {
                 style={{ cursor:'move', userSelect:'none' }}
                 onMouseDown={(e) => onElMouseDown(e, el.id)}
                 onDoubleClick={(e) => { e.stopPropagation(); openElementEditor(el); }}>
-                {renderElement(el, selectedId===el.id, () => openElementEditor(el), scenarioMetrics.taktTimeSec)}
+                {renderElement(el, selectedId===el.id, () => openElementEditor(el), simulation, canvas.assumptions.availableMinutesPerDay)}
               </g>
             ))}
           </g>

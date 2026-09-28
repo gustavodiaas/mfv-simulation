@@ -1,6 +1,15 @@
 import type { CanvasElement } from './canvas-types';
 
-interface SymProps { el: CanvasElement; selected: boolean; onEdit: () => void; taktTimeSec?: number; }
+interface SymProps {
+  el: CanvasElement;
+  selected: boolean;
+  onEdit: () => void;
+  taktTimeSec?: number;
+  dailyDemand?: number;
+  availableMinutesPerDay?: number;
+  leadTimeDays?: number;
+  processingTimeMin?: number;
+}
 
 function sel(selected: boolean, base: string) { return selected ? '#0071e3' : base; }
 function selW(selected: boolean) { return selected ? 2.5 : 1.5; }
@@ -22,32 +31,34 @@ function SelectionRect({ w, h }: { w: number; h: number }) {
 }
 
 // ── Processo ─────────────────────────────────────────────────────────────────
-export function ProcessSymbol({ el, selected, onEdit, taktTimeSec = 0 }: SymProps) {
+export function ProcessSymbol({ el, selected, onEdit, taktTimeSec = 0, availableMinutesPerDay = 0 }: SymProps) {
   const w = 150; const h = 160;
   const cycleTime = Math.max(0, Number(el.data.tc) || 0);
   const setupPerUnit = (Math.max(0, Number(el.data.setup) || 0) * 60) / Math.max(1, Number(el.data.lote) || 1);
   const availability = Math.min(100, Math.max(1, Number(el.data.disp) || 100)) / 100;
-  const operators = Math.max(1, Number(el.data.op) || 1);
-  const effectiveCycle = (cycleTime + setupPerUnit) / (operators * availability);
+  const resources = Math.max(1, Number(el.data.recurso) || 1);
+  const effectiveCycle = (cycleTime + setupPerUnit) / (resources * availability);
   const loadPercent = taktTimeSec > 0 ? (effectiveCycle / taktTimeSec) * 100 : 0;
-  const overloaded = loadPercent > 100;
+  const valid = cycleTime > 0;
+  const overloaded = valid && loadPercent > 100;
+  const capacityPerDay = effectiveCycle > 0 ? (availableMinutesPerDay * 60) / effectiveCycle : 0;
   const rows = [
-    { k: 'Operadores', v: `${el.data.op ?? 1}` },
+    { k: 'Nº operador', v: `${el.data.op ?? 1}` },
     { k: 'T/C', v: `${el.data.tc ?? 0} s` },
     { k: 'Setup', v: `${el.data.setup ?? 0} min` },
-    { k: 'Lote', v: `${el.data.lote ?? 1}` },
+    { k: 'Recurso', v: `${el.data.recurso ?? 1}` },
     { k: 'Disponib.', v: `${el.data.disp ?? 100}%` },
-    { k: 'WIP', v: `${el.data.wip ?? 0} un` },
+    { k: 'Capacidade', v: effectiveCycle > 0 ? `${capacityPerDay.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/dia` : '—' },
   ];
   const label = el.label || 'Processo';
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
       {taktTimeSec > 0 && <g transform="translate(4,-19)">
-        <rect width={92} height={16} rx={8} fill={overloaded ? '#ffe2df' : '#dcf6e7'} stroke={overloaded ? '#ff3b30' : '#1f9d5a'} strokeWidth={0.8} />
-        <circle cx={9} cy={8} r={3} fill={overloaded ? '#ff3b30' : '#1f9d5a'} />
-        <text x={17} y={11} fontSize={7} fontWeight="700" fontFamily="Arial" fill={overloaded ? '#a51f18' : '#126b3b'}>
-          {overloaded ? 'SOBRECARREGADO' : `CARGA ${loadPercent.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%`}
+        <rect width={92} height={16} rx={8} fill={!valid ? '#fff2cf' : overloaded ? '#ffe2df' : '#dcf6e7'} stroke={!valid ? '#d79a18' : overloaded ? '#ff3b30' : '#1f9d5a'} strokeWidth={0.8} />
+        <circle cx={9} cy={8} r={3} fill={!valid ? '#d79a18' : overloaded ? '#ff3b30' : '#1f9d5a'} />
+        <text x={17} y={11} fontSize={7} fontWeight="700" fontFamily="Arial" fill={!valid ? '#815a08' : overloaded ? '#a51f18' : '#126b3b'}>
+          {!valid ? 'SEM TEMPO DE CICLO' : overloaded ? 'SOBRECARREGADO' : `CARGA ${loadPercent.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%`}
         </text>
       </g>}
       <rect width={w} height={h} fill="white" stroke={selected ? '#0071e3' : overloaded ? '#ff3b30' : '#7a8494'} strokeWidth={selected || overloaded ? 2.5 : 1.5} />
@@ -146,14 +157,15 @@ export function ShippingPointSymbol({ el, selected, onEdit }: SymProps) {
 }
 
 // ── Estoque ───────────────────────────────────────────────────────────────────
-export function InventorySymbol({ el, selected, onEdit }: SymProps) {
+export function InventorySymbol({ el, selected, onEdit, dailyDemand = 0 }: SymProps) {
   const w = 60; const h = 60;
+  const inventoryDays = dailyDemand > 0 ? Number(el.data.qty ?? 0) / dailyDemand : 0;
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
       <polygon points={`${w/2},4 ${w-4},${h-18} 4,${h-18}`} fill={selected ? '#ffeaa0' : '#f0ce40'} stroke={sel(selected,'#b89020')} strokeWidth={selW(selected)} />
       <text x={w/2} y={h-22} textAnchor="middle" fontSize={8} fontFamily="Arial" fontWeight="700" fill="#363b43">{el.data.qty ?? 0}</text>
-      <text x={w/2} y={h-8} textAnchor="middle" fontSize={6} fontFamily="Arial" fill="#636b73">{el.data.dias ?? 0}d</text>
+      <text x={w/2} y={h-8} textAnchor="middle" fontSize={6} fontFamily="Arial" fill="#636b73">{inventoryDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dias</text>
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
@@ -483,7 +495,7 @@ export function NoteSymbol({ el, selected, onEdit }: SymProps) {
 }
 
 // ── Linha do tempo (dente de serra) ──────────────────────────────────────────
-export function TimelineSymbol({ el, selected, onEdit }: SymProps) {
+export function TimelineSymbol({ el, selected, onEdit, leadTimeDays, processingTimeMin }: SymProps) {
   const w = 400; const h = 70;
   // dente de serra decorativo
   const teethW = 40; const teethCount = Math.floor((w - 60) / (teethW * 2));
@@ -498,8 +510,8 @@ export function TimelineSymbol({ el, selected, onEdit }: SymProps) {
       {/* dente de serra */}
       <path d={teeth + ` L${10 + teethCount*teethW*2},${h-24}`} fill="none" stroke="#6070a0" strokeWidth={1.5} />
       <line x1={10} y1={h-24} x2={w-10} y2={h-24} stroke="#9aa0ae" strokeWidth={1} />
-      <text x={12} y={16} fontSize={8} fontWeight="700" fontFamily="Arial" fill="#363b43">Lead time: <tspan fill="#0d3d8c">{el.data.leadtime??0} dias</tspan></text>
-      <text x={12} y={28} fontSize={8} fontWeight="700" fontFamily="Arial" fill="#363b43">Tempo processo: <tspan fill="#0d3d8c">{el.data.tprocess??0} min</tspan></text>
+      <text x={12} y={16} fontSize={8} fontWeight="700" fontFamily="Arial" fill="#363b43">Lead time: <tspan fill="#0d3d8c">{(leadTimeDays ?? Number(el.data.leadtime ?? 0)).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dias</tspan></text>
+      <text x={12} y={28} fontSize={8} fontWeight="700" fontFamily="Arial" fill="#363b43">Tempo processo: <tspan fill="#0d3d8c">{(processingTimeMin ?? Number(el.data.tprocess ?? 0)).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min</tspan></text>
       <EditBtn onEdit={onEdit} x={w-2} y={4} />
     </g>
   );
@@ -531,4 +543,108 @@ export function LegendSymbol({ el, selected, onEdit }: SymProps) {
       <EditBtn onEdit={onEdit} x={w-2} y={4} />
     </g>
   );
+}
+
+// ── Símbolos complementares do MFV ──────────────────────────────────────────
+export function ExtendedSymbol(props: SymProps) {
+  const { el, selected, onEdit } = props;
+  const stroke = sel(selected, '#526074');
+  const strokeWidth = selW(selected);
+  const edit = (x: number, y = 2) => <EditBtn onEdit={onEdit} x={x} y={y} />;
+  const label = (x: number, y: number, text = el.label, color = '#263548') => (
+    <text x={x} y={y} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill={color}>{text}</text>
+  );
+
+  if (el.kind === 'shared-process') {
+    return <g><ProcessSymbol {...props} /><rect x={4} y={4} width={142} height={152} fill="none" stroke="#65748a" strokeWidth={1} strokeDasharray="5 3" pointerEvents="none" /></g>;
+  }
+
+  if (el.kind === 'raw-material' || el.kind === 'finished-goods' || el.kind === 'warehouse') {
+    const w = el.kind === 'warehouse' ? 120 : 110; const h = el.kind === 'warehouse' ? 82 : 72;
+    const fill = el.kind === 'raw-material' ? '#d9e4fb' : el.kind === 'finished-goods' ? '#d9f1e1' : '#edf0f5';
+    return <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} rx={3} fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
+      {el.kind === 'warehouse' ? <>
+        <path d={`M12,30 L${w/2},8 L${w-12},30`} fill="none" stroke={stroke} strokeWidth={2} />
+        <rect x={18} y={30} width={w-36} height={27} fill="white" stroke={stroke} strokeWidth={1.4} />
+        {[0,1,2].map((i)=><line key={i} x1={30+i*24} y1={31} x2={30+i*24} y2={57} stroke="#9ba7b7" />)}
+      </> : <>
+        <path d={`M${w/2-18},12 l18,-8 18,8 -18,8 z`} fill="#8fa8d8" stroke={stroke} />
+        <path d={`M${w/2-18},12 v20 l18,9 18,-9 v-20`} fill="none" stroke={stroke} strokeWidth={1.4} />
+        <line x1={w/2} y1={20} x2={w/2} y2={41} stroke={stroke} />
+      </>}
+      {label(w/2,h-8)}
+      {Number(el.data.qty ?? 0) > 0 && <text x={w-7} y={13} textAnchor="end" fontSize={7} fontFamily="Arial" fill="#526074">{el.data.qty} un</text>}
+      {edit(w-2)}
+    </g>;
+  }
+
+  if (el.kind === 'machine') {
+    const w=120,h=82;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect width={w} height={h} rx={4} fill="#eef2f7" stroke={stroke} strokeWidth={strokeWidth}/>
+      <rect x={15} y={17} width={90} height={34} rx={3} fill="white" stroke={stroke}/><circle cx={45} cy={34} r={11} fill="#d4deed" stroke={stroke}/><circle cx={45} cy={34} r={4} fill="#718096"/>
+      <rect x={68} y={25} width={23} height={18} fill="#d4deed" stroke={stroke}/>{label(w/2,70)}{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'inspection') {
+    const w=100,h=86;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points={`${w/2},5 ${w-5},${h/2} ${w/2},${h-5} 5,${h/2}`} fill="#fff4cf" stroke={stroke} strokeWidth={strokeWidth}/>
+      <text x={w/2} y={h/2-2} textAnchor="middle" fontSize={18} fontWeight="800" fontFamily="Arial" fill="#9a6b00">Q</text>{label(w/2,h/2+15)}{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'safety-stock') {
+    const w=76,h=64;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points="22,7 40,40 4,40" fill="#f7dc62" stroke={stroke} strokeWidth={strokeWidth}/><polygon points="54,7 72,40 36,40" fill="#ffd044" stroke={stroke} strokeWidth={strokeWidth}/>
+      <text x={38} y={35} textAnchor="middle" fontSize={9} fontWeight="800" fontFamily="Arial" fill="#604c00">SS</text><text x={38} y={55} textAnchor="middle" fontSize={7} fontFamily="Arial" fill="#4d5663">{el.data.qty ?? 0} un</text>{edit(w-2)}</g>;
+  }
+
+  if (['transport-air','transport-ship','forklift','milk-run'].includes(el.kind)) {
+    const w=el.kind==='milk-run'?120:el.kind==='transport-ship'?105:el.kind==='transport-air'?100:90; const h=el.kind==='milk-run'?64:58;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect width={w} height={h} rx={8} fill="#eef3fb" stroke={stroke} strokeWidth={strokeWidth}/>
+      {el.kind==='transport-air' && <path d="M12,29 L43,24 L56,8 L64,8 L59,23 L84,21 L88,27 L58,33 L62,47 L56,47 L45,35 L15,39 Z" fill="#7890b5" stroke={stroke}/>}
+      {el.kind==='transport-ship' && <><path d="M12,34 H92 L80,48 H28 Z" fill="#8eb8d8" stroke={stroke}/><rect x={37} y={19} width={33} height={15} fill="#dbe8f4" stroke={stroke}/><line x1={52} y1={19} x2={52} y2={8} stroke={stroke}/></>}
+      {el.kind==='forklift' && <><circle cx={27} cy={44} r={6} fill="#39485c"/><circle cx={63} cy={44} r={6} fill="#39485c"/><rect x={18} y={24} width={42} height={18} fill="#f0b84b" stroke={stroke}/><path d="M58,13 V44 H80 M72,13 V39" fill="none" stroke={stroke} strokeWidth={3}/></>}
+      {el.kind==='milk-run' && <><path d="M14,29 H105" fill="none" stroke="#0071e3" strokeWidth={2} strokeDasharray="5 3"/><circle cx={23} cy={29} r={9} fill="#dcecff" stroke="#0071e3"/><circle cx={60} cy={29} r={9} fill="#dcecff" stroke="#0071e3"/><circle cx={97} cy={29} r={9} fill="#dcecff" stroke="#0071e3"/></>}
+      {label(w/2,h-6)}{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'signal-kanban') {
+    const w=64,h=56;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points={`${w/2},4 ${w-5},${h-8} 5,${h-8}`} fill="#ffb23f" stroke={stroke} strokeWidth={strokeWidth}/><text x={w/2} y={34} textAnchor="middle" fontSize={9} fontWeight="800" fontFamily="Arial" fill="#6d3b00">K</text>{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'kanban-post') {
+    const w=88,h=72;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={18} y={8} width={52} height={48} rx={3} fill="#fff7dd" stroke={stroke} strokeWidth={strokeWidth}/><line x1={27} y1={20} x2={61} y2={20} stroke="#d59a25"/><line x1={27} y1={31} x2={61} y2={31} stroke="#d59a25"/><line x1={27} y1={42} x2={61} y2={42} stroke="#d59a25"/>{label(w/2,68)}{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'sequenced-pull') {
+    const w=150,h=62;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<path d="M8,31 H134" stroke="#0071e3" strokeWidth={2.5}/><polygon points="134,24 146,31 134,38" fill="#0071e3"/>{[20,48,76,104].map((x,i)=><rect key={i} x={x} y={16} width={15} height={22} rx={2} fill={i%2?'#ffb347':'#62b987'} stroke="#526074"/>)}{label(w/2,55)}{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'erp-system' || el.kind === 'go-see') {
+    const w=el.kind==='erp-system'?120:130,h=el.kind==='erp-system'?76:72;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect width={w} height={h} rx={6} fill={el.kind==='erp-system'?'#e9e4fb':'#e5f2ff'} stroke={stroke} strokeWidth={strokeWidth}/>
+      {el.kind==='erp-system'?<><rect x={22} y={13} width={76} height={32} rx={3} fill="white" stroke="#6751a3"/><path d="M33,23 H87 M33,31 H74 M33,39 H81" stroke="#8a78bd"/><rect x={48} y={48} width={24} height={4} fill="#6751a3"/></>:<><circle cx={43} cy={27} r={9} fill="white" stroke="#23659c"/><circle cx={74} cy={27} r={9} fill="white" stroke="#23659c"/><path d="M52,27 H65 M34,27 H22 M83,27 H100" stroke="#23659c" strokeWidth={2}/></>}
+      {label(w/2,h-9)}{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'quality-problem') {
+    const w=82,h=72;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<path d="M41,4 L51,16 L68,13 L66,30 L78,40 L64,50 L65,67 L48,63 L37,71 L27,58 L10,61 L12,44 L2,33 L17,24 L17,8 L34,12 Z" fill="#ffd9d5" stroke="#d43d32" strokeWidth={strokeWidth}/><text x={41} y={38} textAnchor="middle" fontSize={17} fontWeight="900" fontFamily="Arial" fill="#a2221a">Q!</text>{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'bottleneck') {
+    const w=92,h=66;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<path d="M20,7 H72 L62,25 V41 L72,59 H20 L30,41 V25 Z" fill="#ffe2df" stroke="#d43d32" strokeWidth={strokeWidth}/><text x={46} y={37} textAnchor="middle" fontSize={9} fontWeight="900" fontFamily="Arial" fill="#a2221a">GARGALO</text>{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'distance') {
+    const w=150,h=42;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<line x1={10} y1={18} x2={140} y2={18} stroke={stroke} strokeWidth={2}/><polygon points="10,18 20,12 20,24" fill={stroke}/><polygon points="140,18 130,12 130,24" fill={stroke}/><text x={75} y={36} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill="#39485c">{Number(el.data.distance ?? 0).toLocaleString('pt-BR')} m</text>{edit(w-2)}</g>;
+  }
+
+  return null;
 }

@@ -158,10 +158,13 @@ button, input, select { font: inherit; cursor: pointer; }
 .simulation-summary span { color: #7b7b80; font-size: 8px; font-weight: 700; letter-spacing: .035em; text-transform: uppercase; }
 .simulation-summary strong { color: #1d1d1f; font-size: 11px; }
 .simulation-summary .summary-critical,
+.simulation-summary .summary-warning,
 .simulation-summary .summary-ok { min-width: 142px; flex-direction: row; align-items: center; gap: 6px; }
 .simulation-summary .summary-critical { color: #c9342b; background: #fff2f0; }
+.simulation-summary .summary-warning { color: #986500; background: #fff7dd; }
 .simulation-summary .summary-ok { color: #168448; background: #edf9f2; }
 .simulation-summary .summary-critical span,
+.simulation-summary .summary-warning span,
 .simulation-summary .summary-ok span { color: currentColor; }
 
 /* zoom controls */
@@ -196,6 +199,12 @@ button, input, select { font: inherit; cursor: pointer; }
 }
 .primary-button:hover { background: #0077ed; transform: translateY(-1px); }
 .primary-button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.copy-scenario-button {
+  height: 36px; padding: 0 11px; color: #12683a; background: #e9f7ef;
+  border: 1px solid #bfe6cf; border-radius: 9px; font-size: 10px; font-weight: 650;
+  white-space: nowrap;
+}
+.copy-scenario-button:hover { background: #dcf2e6; border-color: #8fd0aa; }
 .icon-button { width: 32px; height: 32px; color: #6e6e73; background: #f2f2f4; border-radius: 50%; }
 .icon-button:hover { color: #1d1d1f; }
 
