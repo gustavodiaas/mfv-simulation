@@ -9,6 +9,7 @@ interface SymProps {
   availableMinutesPerDay?: number;
   leadTimeDays?: number;
   processingTimeMin?: number;
+  timelineSteps?: { inventoryDays: number; processTimeMin: number }[];
 }
 
 function sel(selected: boolean, base: string) { return selected ? '#0071e3' : base; }
@@ -495,24 +496,55 @@ export function NoteSymbol({ el, selected, onEdit }: SymProps) {
 }
 
 // ── Linha do tempo (dente de serra) ──────────────────────────────────────────
-export function TimelineSymbol({ el, selected, onEdit, leadTimeDays, processingTimeMin }: SymProps) {
-  const w = 400; const h = 70;
-  // dente de serra decorativo
-  const teethW = 40; const teethCount = Math.floor((w - 60) / (teethW * 2));
-  const teeth = Array.from({length: teethCount}, (_,i) => {
-    const x = 10 + i * teethW * 2;
-    return `M${x},${h-24} L${x+teethW},${h-40} L${x+teethW},${h-24} L${x+teethW*2},${h-40}`;
-  }).join(' ');
+export function TimelineSymbol({ selected, leadTimeDays = 0, processingTimeMin = 0, timelineSteps = [] }: SymProps) {
+  const labelWidth = 150;
+  const segmentWidth = 76;
+  const summaryWidth = 220;
+  const topY = 24;
+  const bottomY = 56;
+  const steps = timelineSteps.length ? timelineSteps : [{ inventoryDays: 0, processTimeMin: 0 }];
+  const summaryX = labelWidth + steps.length * segmentWidth * 2;
+  const w = summaryX + summaryWidth;
+  const h = 78;
+  const format = (value: number, digits: number) => value.toLocaleString('pt-BR', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <rect width={w} height={h} rx={3} fill={selected?'#e8f0ff':'#f4f6fc'} stroke={sel(selected,'#6070a0')} strokeWidth={selW(selected)} />
-      {/* dente de serra */}
-      <path d={teeth + ` L${10 + teethCount*teethW*2},${h-24}`} fill="none" stroke="#6070a0" strokeWidth={1.5} />
-      <line x1={10} y1={h-24} x2={w-10} y2={h-24} stroke="#9aa0ae" strokeWidth={1} />
-      <text x={12} y={16} fontSize={8} fontWeight="700" fontFamily="Arial" fill="#363b43">Lead time: <tspan fill="#0d3d8c">{(leadTimeDays ?? Number(el.data.leadtime ?? 0)).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dias</tspan></text>
-      <text x={12} y={28} fontSize={8} fontWeight="700" fontFamily="Arial" fill="#363b43">Tempo processo: <tspan fill="#0d3d8c">{(processingTimeMin ?? Number(el.data.tprocess ?? 0)).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min</tspan></text>
-      <EditBtn onEdit={onEdit} x={w-2} y={4} />
+      <text x={labelWidth - 12} y={topY - 6} textAnchor="end" fontSize={10} fontWeight="700" fontFamily="Arial" fill="#1d2128">ESTOQUE EM DIAS</text>
+      <text x={labelWidth - 12} y={bottomY + 16} textAnchor="end" fontSize={10} fontWeight="700" fontFamily="Arial" fill="#1d2128">T/C (MIN)</text>
+
+      {steps.map((step, index) => {
+        const startX = labelWidth + index * segmentWidth * 2;
+        const middleX = startX + segmentWidth;
+        const endX = middleX + segmentWidth;
+        return (
+          <g key={index}>
+            <path d={`M${startX},${topY} H${middleX} V${bottomY} H${endX} V${topY}`}
+              fill="none" stroke="#24262b" strokeWidth={1.4} />
+            <text x={startX + segmentWidth / 2} y={topY - 7} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">
+              {format(step.inventoryDays, 2)}
+            </text>
+            <text x={startX + segmentWidth / 2} y={topY + 10} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#35383e">Dias</text>
+            <text x={middleX + segmentWidth / 2} y={bottomY - 7} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">
+              {format(step.processTimeMin, 1)}
+            </text>
+            <text x={middleX + segmentWidth / 2} y={bottomY + 15} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#35383e">Minutos</text>
+          </g>
+        );
+      })}
+
+      <g transform={`translate(${summaryX},4)`}>
+        <rect width={summaryWidth} height={52} fill="white" stroke="#24262b" strokeWidth={1.4} />
+        <line x1={0} y1={26} x2={summaryWidth} y2={26} stroke="#24262b" strokeWidth={1.1} />
+        <line x1={92} y1={0} x2={92} y2={52} stroke="#24262b" strokeWidth={1.1} />
+        <text x={46} y={17} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">{format(leadTimeDays, 2)}</text>
+        <text x={46} y={43} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">{format(processingTimeMin, 1)}</text>
+        <text x={99} y={17} fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">LEAD TIME DIAS</text>
+        <text x={99} y={43} fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">AGV (Min)</text>
+      </g>
     </g>
   );
 }

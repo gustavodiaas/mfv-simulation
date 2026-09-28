@@ -61,7 +61,9 @@ function calculateProcessLoad(element: CanvasElement, taktTimeSec: number) {
 
 function calculateCanvasSimulation(canvas: CanvasState) {
   const { dailyDemand, taktTimeSec } = calculateScenario(canvas.assumptions);
-  const processElements = canvas.elements.filter((element) => ['process','shared-process'].includes(element.kind));
+  const processElements = canvas.elements
+    .filter((element) => ['process','shared-process'].includes(element.kind))
+    .sort((a, b) => a.x - b.x);
   const processMetrics = processElements.map((element) => {
     const load = calculateProcessLoad(element, taktTimeSec);
     const capacityPerDay = load.effectiveCycleSec > 0
@@ -72,15 +74,20 @@ function calculateCanvasSimulation(canvas: CanvasState) {
   const finiteCapacities = processMetrics.map((metric) => metric.capacityPerDay).filter(Number.isFinite);
   const bottleneckCapacity = finiteCapacities.length ? Math.min(...finiteCapacities) : 0;
   const bottleneck = processMetrics.find((metric) => metric.capacityPerDay === bottleneckCapacity)?.element;
-  const stockKinds: ElementKind[] = ['inventory','safety-stock','raw-material','finished-goods','buffer','supermarket','fifo'];
-  const totalInventory = canvas.elements
+  const stockKinds: ElementKind[] = ['inventory','safety-stock','buffer','supermarket','fifo'];
+  const inventoryElements = canvas.elements
     .filter((element) => stockKinds.includes(element.kind))
+    .sort((a, b) => a.x - b.x);
+  const totalInventory = inventoryElements
     .reduce((sum, element) => sum + Math.max(0, Number(element.data.qty) || 0), 0);
   const inventoryDays = dailyDemand > 0 ? totalInventory / dailyDemand : 0;
   const processingTimeMin = processElements.reduce((sum, element) => sum + Math.max(0, Number(element.data.tc) || 0), 0) / 60;
-  const processingDays = canvas.assumptions.availableMinutesPerDay > 0
-    ? processingTimeMin / canvas.assumptions.availableMinutesPerDay
-    : 0;
+  const timelineSteps = Array.from({ length: Math.max(processElements.length, inventoryElements.length) }, (_, index) => ({
+    inventoryDays: dailyDemand > 0
+      ? Math.max(0, Number(inventoryElements[index]?.data.qty) || 0) / dailyDemand
+      : 0,
+    processTimeMin: Math.max(0, Number(processElements[index]?.data.tc) || 0) / 60,
+  }));
   return {
     dailyDemand,
     taktTimeSec,
@@ -92,7 +99,9 @@ function calculateCanvasSimulation(canvas: CanvasState) {
     bottleneck,
     inventoryDays,
     processingTimeMin,
-    leadTimeDays: inventoryDays + processingDays,
+    leadTimeDays: inventoryDays,
+    timelineSteps,
+    inventoryElements,
   };
 }
 
@@ -131,7 +140,7 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
     ? { ...existingPlanning, id: FIXED_PLANNING_ID, kind: 'planning' as const, data: planningData(assumptions) }
     : createFixedPlanning(assumptions);
   return {
-    elements: [fixedPlanning, ...elements.filter((element) => element !== existingPlanning && element.id !== FIXED_PLANNING_ID)],
+    elements: [fixedPlanning, ...elements.filter((element) => element !== existingPlanning && element.id !== FIXED_PLANNING_ID && element.kind !== 'timeline')],
     arrows: Array.isArray(raw?.arrows) ? raw.arrows : [],
     assumptions,
   };
@@ -167,7 +176,6 @@ function createExcelTemplate(assumptions: ScenarioAssumptions, scenario: ActiveK
   const customer: CanvasElement = { id: `${scenario}-customer-${makeId()}`, kind: 'customer', x: 1380, y: 25, label: 'Cliente final', data: { freq: 1 } };
   const rawMaterial: CanvasElement = { id: `${scenario}-raw-${makeId()}`, kind: 'raw-material', x: 45, y: 275, label: 'Matéria-prima', data: { qty: 0 } };
   const shipping: CanvasElement = { id: `${scenario}-shipping-${makeId()}`, kind: 'shipping-point', x: 1510, y: 285, label: 'Expedição', data: {} };
-  const timeline: CanvasElement = { id: `${scenario}-timeline-${makeId()}`, kind: 'timeline', x: 515, y: 500, label: '', data: {} };
   const materialNodes = [rawMaterial, ...processes, shipping];
   const materialArrows = materialNodes.slice(0, -1).map((node, index): CanvasArrow => {
     const next = materialNodes[index + 1];
@@ -180,7 +188,7 @@ function createExcelTemplate(assumptions: ScenarioAssumptions, scenario: ActiveK
   ];
   return normalizeCanvas({
     assumptions,
-    elements: [fixedPlanning, supplier, customer, rawMaterial, ...processes, ...inventories, shipping, timeline],
+    elements: [fixedPlanning, supplier, customer, rawMaterial, ...processes, ...inventories, shipping],
     arrows: [...materialArrows, ...informationArrows],
   });
 }
@@ -351,7 +359,7 @@ function LibraryPanel({ onDragStart }: { onDragStart: (item: LibraryItem, e: Rea
   return (
     <div className="library-panel">
       {groups.map((g) => {
-        const items = LIBRARY.filter((i) => i.group === g && i.kind !== 'planning');
+        const items = LIBRARY.filter((i) => i.group === g && !['planning','timeline'].includes(i.kind));
         const open = !collapsed[g];
         return (
           <div key={g} className="library-group">
@@ -645,6 +653,13 @@ export default function App() {
   const [canvases, setCanvases] = useState<Record<ActiveKind,CanvasState>>(loadCanvases);
   const canvas = canvases[activeKind];
   const simulation = calculateCanvasSimulation(canvas);
+  const timelineSourceElements = [...simulation.processElements, ...simulation.inventoryElements];
+  const automaticTimelinePosition = timelineSourceElements.length
+    ? {
+        x: Math.max(20, Math.min(...timelineSourceElements.map((element) => element.x)) - 165),
+        y: Math.max(...timelineSourceElements.map((element) => element.y)) + 225,
+      }
+    : null;
 
   const setCanvas = useCallback((next: CanvasState | ((p: CanvasState) => CanvasState)) => {
     setCanvases((prev) => {
@@ -941,7 +956,7 @@ export default function App() {
                   onMouseDown={(e) => { e.stopPropagation(); onHandleMouseDown(e, arrow.id, 'end'); }} />
               </g>
             ))}
-            {canvas.elements.map((el) => (
+            {canvas.elements.filter((el) => el.kind !== 'timeline').map((el) => (
               <g key={el.id} transform={`translate(${el.x},${el.y})`}
                 style={{ cursor:'move', userSelect:'none' }}
                 onMouseDown={(e) => onElMouseDown(e, el.id)}
@@ -949,6 +964,18 @@ export default function App() {
                 {renderElement(el, selectedId===el.id, () => openElementEditor(el), simulation, canvas.assumptions.availableMinutesPerDay)}
               </g>
             ))}
+            {automaticTimelinePosition && (
+              <g transform={`translate(${automaticTimelinePosition.x},${automaticTimelinePosition.y})`}>
+                <TimelineSymbol
+                  el={{ id: '__automatic-timeline__', kind: 'timeline', x: 0, y: 0, label: '', data: {} }}
+                  selected={false}
+                  onEdit={() => undefined}
+                  timelineSteps={simulation.timelineSteps}
+                  leadTimeDays={simulation.leadTimeDays}
+                  processingTimeMin={simulation.processingTimeMin}
+                />
+              </g>
+            )}
           </g>
         </svg>
 
