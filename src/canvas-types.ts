@@ -29,6 +29,7 @@ export type ElementKind =
   | 'kanban-post'
   | 'sequenced-pull'
   // Informação
+  | 'identification'
   | 'planning'
   | 'data-box'
   | 'customer-demand'

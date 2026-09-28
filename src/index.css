@@ -345,6 +345,34 @@ g:hover > .edit-btn-group { opacity: 1; }
 }
 .demand-modal-footer p { max-width: 380px; margin: 0; color: #77777c; font-size: 10px; line-height: 1.45; }
 
+.identification-editor { max-width: 760px !important; }
+.identification-editor > header p { margin: 3px 0 0; color: #8e8e93; font-size: 10px; }
+.identification-editor-body { display: grid; grid-template-columns: .85fr 1.15fr; gap: 20px; padding: 20px 22px; }
+.identification-fields { display: grid; align-content: start; gap: 12px; }
+.identification-fields label { display: grid; gap: 6px; }
+.identification-fields label > span { color: #56565b; font-size: 10px; font-weight: 650; }
+.identification-fields input {
+  height: 41px; padding: 0 11px; color: #1d1d1f; background: #f5f5f7;
+  border: 1px solid transparent; border-radius: 9px; outline: none; cursor: text;
+}
+.identification-fields input:focus { background: white; border-color: #0071e3; box-shadow: 0 0 0 3px rgba(0,113,227,.11); }
+.identification-images { display: grid; gap: 10px; }
+.identification-image-field {
+  display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 13px;
+  min-height: 104px; padding: 10px; background: #f8f8fa; border: 1px solid #e2e2e7; border-radius: 12px;
+}
+.identification-image-preview { width: 96px; height: 80px; display: grid; place-items: center; overflow: hidden; color: #9a9aa0; background: white; border: 1px dashed #c8c8ce; border-radius: 9px; }
+.identification-image-preview img { width: 100%; height: 100%; object-fit: contain; }
+.identification-image-field strong { display: block; font-size: 11px; }
+.identification-image-field span { display: block; margin-top: 2px; color: #8e8e93; font-size: 9.5px; }
+.identification-image-actions { display: flex; gap: 6px; margin-top: 10px; }
+.identification-image-actions label,
+.identification-image-actions button { padding: 6px 9px; color: #0065c8; background: #e8f2ff; border: 0; border-radius: 7px; font-size: 9px; font-weight: 650; cursor: pointer; }
+.identification-image-actions button { color: #b42318; background: #fff0ef; }
+.identification-image-actions input { display: none; }
+.identification-error { grid-column: 1 / -1; margin: 0; padding: 9px 11px; color: #b42318; background: #fff1f0; border-radius: 8px; font-size: 10px; }
+.identification-editor-footer { display: flex; justify-content: flex-end; padding: 14px 22px 18px; border-top: 1px solid #e5e5e9; }
+
 .export-modal { max-width: 460px !important; }
 .paper-size-picker { padding: 16px 22px 0; }
 .paper-size-picker > span { display: block; margin-bottom: 8px; color: #56565b; font-size: 11px; font-weight: 650; }
@@ -391,4 +419,5 @@ g:hover > .edit-btn-group { opacity: 1; }
   .takt-result-card { min-height: 170px; }
   .demand-modal-footer { align-items: stretch; flex-direction: column; }
   .demand-modal-footer .primary-button { width: 100%; }
+  .identification-editor-body { grid-template-columns: 1fr; overflow-y: auto; }
 }

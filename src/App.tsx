@@ -13,6 +13,7 @@ import {
 import {
   BufferSymbol, CustomerDemandSymbol, DataBoxSymbol, ExtendedSymbol, FifoSymbol,
   HeijunkaSymbol, InterventionSymbol, InventorySymbol, KaizenSymbol,
+  IdentificationSymbol,
   KanbanBoardSymbol, KanbanProductionSymbol, KanbanWithdrawalSymbol,
   LegendSymbol, NoteSymbol, OperatorSymbol, PartySymbol, PlanningSymbol,
   ProcessSymbol, ProductionScheduleSymbol, SequencingBoxSymbol,
@@ -27,6 +28,7 @@ import type { Scenario } from './types';
 const STORAGE_KEY = 'mfv-canvas:v2';
 const LEGACY_STORAGE_KEY = 'mfv-simulation:v2';
 const FIXED_PLANNING_ID = '__mfv-demand-planning__';
+const FIXED_IDENTIFICATION_ID = '__mfv-identification__';
 type ActiveKind = 'current' | 'future';
 
 const DEFAULT_ASSUMPTIONS: ScenarioAssumptions = {
@@ -128,6 +130,17 @@ function createFixedPlanning(assumptions: ScenarioAssumptions): CanvasElement {
   };
 }
 
+function createFixedIdentification(planning: CanvasElement): CanvasElement {
+  return {
+    id: FIXED_IDENTIFICATION_ID,
+    kind: 'identification',
+    x: planning.x - 100,
+    y: Math.max(-60, planning.y - 115),
+    label: 'Identificação do MFV',
+    data: { family: '', companyName: '', productName: '', companyImage: '', productImage: '' },
+  };
+}
+
 function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial<Scenario>): CanvasState {
   const elements = Array.isArray(raw?.elements) ? raw.elements : [];
   const existingPlanning = elements.find((element) => element.id === FIXED_PLANNING_ID)
@@ -140,8 +153,18 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
   const fixedPlanning = existingPlanning
     ? { ...existingPlanning, id: FIXED_PLANNING_ID, kind: 'planning' as const, data: planningData(assumptions) }
     : createFixedPlanning(assumptions);
+  const existingIdentification = elements.find((element) => element.id === FIXED_IDENTIFICATION_ID)
+    ?? elements.find((element) => element.kind === 'identification');
+  const fixedIdentification = existingIdentification
+    ? { ...existingIdentification, id: FIXED_IDENTIFICATION_ID, kind: 'identification' as const }
+    : createFixedIdentification(fixedPlanning);
   return {
-    elements: [fixedPlanning, ...elements.filter((element) => element !== existingPlanning && element.id !== FIXED_PLANNING_ID && element.kind !== 'timeline')],
+    elements: [
+      fixedIdentification,
+      fixedPlanning,
+      ...elements.filter((element) => element !== existingPlanning && element !== existingIdentification
+        && element.id !== FIXED_PLANNING_ID && element.id !== FIXED_IDENTIFICATION_ID && element.kind !== 'timeline'),
+    ],
     arrows: Array.isArray(raw?.arrows) ? raw.arrows : [],
     assumptions,
   };
@@ -295,6 +318,7 @@ function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void,
     case 'heijunka':            return <HeijunkaSymbol {...p} />;
     case 'sequencing-box':      return <SequencingBoxSymbol {...p} />;
     case 'planning':            return <PlanningSymbol {...p} />;
+    case 'identification':      return <IdentificationSymbol {...p} />;
     case 'data-box':            return <DataBoxSymbol {...p} />;
     case 'customer-demand':     return <CustomerDemandSymbol {...p} />;
     case 'production-schedule': return <ProductionScheduleSymbol {...p} />;
@@ -495,6 +519,100 @@ function ElementPopover({ el, onUpdate, onDelete, onClose }: {
       </div>
     </div>,
     document.body
+  );
+}
+
+async function prepareIdentificationImage(file: File) {
+  if (!file.type.startsWith('image/')) throw new Error('Selecione um arquivo de imagem.');
+  if (file.size > 10 * 1024 * 1024) throw new Error('A imagem deve ter no máximo 10 MB.');
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Não foi possível ler esta imagem.'));
+      image.src = url;
+    });
+    const scale = Math.min(1, 800 / image.naturalWidth, 500 / image.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Não foi possível processar esta imagem.');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    return canvas.toDataURL(outputType, outputType === 'image/jpeg' ? 0.86 : undefined);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function IdentificationEditor({ el, onUpdate, onClose }: {
+  el: CanvasElement;
+  onUpdate: (patch: Partial<CanvasElement>) => void;
+  onClose: () => void;
+}) {
+  const [error, setError] = useState<string|null>(null);
+  const updateData = (key: string, value: string) => onUpdate({ data: { ...el.data, [key]: value } });
+  const upload = async (key: 'companyImage' | 'productImage', file?: File) => {
+    if (!file) return;
+    setError(null);
+    try {
+      updateData(key, await prepareIdentificationImage(file));
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Não foi possível carregar a imagem.');
+    }
+  };
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  const imageField = (key: 'companyImage' | 'productImage', title: string, description: string) => {
+    const image = String(el.data[key] ?? '');
+    return (
+      <div className="identification-image-field">
+        <div className="identification-image-preview">
+          {image ? <img src={image} alt="" /> : <FileImage size={28} />}
+        </div>
+        <div>
+          <strong>{title}</strong>
+          <span>{description}</span>
+          <div className="identification-image-actions">
+            <label><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => upload(key, event.target.files?.[0])} />Escolher imagem</label>
+            {image && <button onClick={() => updateData(key, '')}>Remover</button>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return createPortal(
+    <div className="editor-overlay" role="dialog" aria-modal="true" aria-labelledby="identification-title">
+      <button className="editor-backdrop" onClick={onClose} aria-label="Fechar identificação" />
+      <section className="editor-window identification-editor">
+        <header>
+          <div><h2 id="identification-title">Identificação do MFV</h2><p>Defina a família analisada e, se quiser, adicione imagens.</p></div>
+          <button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
+        </header>
+        <div className="identification-editor-body">
+          <div className="identification-fields">
+            <label><span>Família de produtos</span><input value={String(el.data.family ?? '')} onChange={(event) => updateData('family', event.target.value)} placeholder="Ex.: Camas infantis" /></label>
+            <label><span>Empresa</span><input value={String(el.data.companyName ?? '')} onChange={(event) => updateData('companyName', event.target.value)} placeholder="Nome opcional" /></label>
+            <label><span>Produto</span><input value={String(el.data.productName ?? '')} onChange={(event) => updateData('productName', event.target.value)} placeholder="Nome opcional" /></label>
+          </div>
+          <div className="identification-images">
+            {imageField('companyImage', 'Empresa', 'Logotipo ou foto da empresa')}
+            {imageField('productImage', 'Produto', 'Foto do produto analisado')}
+          </div>
+          {error && <p className="identification-error">{error}</p>}
+        </div>
+        <footer className="identification-editor-footer"><button className="primary-button" onClick={onClose}>Concluir</button></footer>
+      </section>
+    </div>,
+    document.body,
   );
 }
 
@@ -794,7 +912,7 @@ export default function App() {
       if (!selectedId) return;
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'SELECT') return;
-      if (selectedId === FIXED_PLANNING_ID) return;
+      if ([FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(selectedId)) return;
       setCanvas((p) => ({ ...p, elements: p.elements.filter((el) => el.id !== selectedId), arrows: p.arrows.filter((a) => a.id !== selectedId) }));
       setSelectedId(null);
     };
@@ -807,7 +925,7 @@ export default function App() {
     if (editingEl?.id === id) setEditingEl((p) => p ? { ...p, ...patch } : p);
   };
   const deleteEl = (id: string) => {
-    if (id === FIXED_PLANNING_ID) return;
+    if ([FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(id)) return;
     setCanvas((p) => ({ ...p, elements: p.elements.filter((el) => el.id!==id), arrows: p.arrows.filter((a) => a.id!==id) }));
     setEditingEl(null); setSelectedId(null);
   };
@@ -879,7 +997,7 @@ export default function App() {
           <div className="save-state"><Save size={14} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div>
           <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
           <button onClick={() => { setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Exportar</span></button>
-          <button onClick={() => { if (window.confirm('Limpar os elementos do canvas? A caixa de demanda será mantida.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => element.id === FIXED_PLANNING_ID), arrows: [] })); setSelectedId(null); } }}>
+          <button onClick={() => { if (window.confirm('Limpar os elementos do canvas? As caixas de identificação e demanda serão mantidas.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] })); setSelectedId(null); } }}>
             <RotateCcw size={17} /><span>Limpar</span>
           </button>
         </div>
@@ -922,7 +1040,7 @@ export default function App() {
           </div>
         </header>
 
-        {canvas.elements.every((element) => element.id === FIXED_PLANNING_ID) && canvas.arrows.length===0 && (
+        {canvas.elements.every((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)) && canvas.arrows.length===0 && (
           <div className="canvas-empty-hint">
             <BookOpen size={32}/>
             <strong>Comece pelo fluxo</strong>
@@ -982,14 +1100,19 @@ export default function App() {
 
         {selectedId && (
           <div className="canvas-delete-hint">
-            {selectedId === FIXED_PLANNING_ID
+            {[FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(selectedId)
               ? <>Caixa fixa do cenário · arraste para mover · duplo clique para editar</>
               : <>Pressione <kbd>Delete</kbd> para remover · duplo clique para editar</>}
           </div>
         )}
       </main>
 
-      {editingEl && (
+      {editingEl && editingEl.kind === 'identification' && (
+        <IdentificationEditor el={editingEl}
+          onUpdate={(patch) => updateEl(editingEl.id, patch)}
+          onClose={() => setEditingEl(null)} />
+      )}
+      {editingEl && editingEl.kind !== 'identification' && (
         <ElementPopover el={editingEl}
           onUpdate={(p) => updateEl(editingEl.id, p)}
           onDelete={() => deleteEl(editingEl.id)}

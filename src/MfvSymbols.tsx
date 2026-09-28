@@ -317,6 +317,45 @@ export function SequencingBoxSymbol({ el, selected, onEdit }: SymProps) {
 }
 
 // ── Controle de produção ──────────────────────────────────────────────────────
+export function IdentificationSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 390; const h = 100;
+  const companyImage = String(el.data.companyImage ?? '');
+  const productImage = String(el.data.productImage ?? '');
+  const family = String(el.data.family ?? '').trim() || 'Família não informada';
+  const companyName = String(el.data.companyName ?? '').trim();
+  const productName = String(el.data.productName ?? '').trim();
+  const imageSlot = (x: number, image: string, title: string, fallback: string) => (
+    <g>
+      <rect x={x} y={0} width={90} height={h} fill="#f7f8fb" stroke="#8a93a8" strokeWidth={1} />
+      {image ? (
+        <image href={image} x={x + 5} y={17} width={80} height={66} preserveAspectRatio="xMidYMid meet" />
+      ) : (
+        <>
+          <rect x={x + 17} y={27} width={56} height={38} rx={4} fill="white" stroke="#bdc4cf" strokeDasharray="4 3" />
+          <path d={`M${x + 26},57 L${x + 39},44 L${x + 48},52 L${x + 58},39 L${x + 66},57 Z`} fill="#dbe1ea" />
+          <text x={x + 45} y={75} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#7a8494">{fallback}</text>
+        </>
+      )}
+      <text x={x + 45} y={11} textAnchor="middle" fontSize={6.5} fontWeight="700" fontFamily="Arial" fill="#536176">{title}</text>
+    </g>
+  );
+  return (
+    <g>
+      {selected && <SelectionRect w={w} h={h} />}
+      <rect width={w} height={h} fill="white" stroke={sel(selected, '#66758c')} strokeWidth={selW(selected)} />
+      {imageSlot(0, companyImage, 'EMPRESA', 'Logo ou foto')}
+      <rect x={90} y={0} width={210} height={h} fill="#eef2ff" stroke="#8a93a8" strokeWidth={1} />
+      <rect x={90} y={0} width={210} height={24} fill="#9baded" />
+      <text x={195} y={16} textAnchor="middle" fontSize={8} fontWeight="800" fontFamily="Arial" fill="#172452">FAMÍLIA DE PRODUTOS</text>
+      <text x={195} y={51} textAnchor="middle" fontSize={12} fontWeight="800" fontFamily="Arial" fill="#172452">{family.slice(0, 30)}</text>
+      {companyName && <text x={195} y={70} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#536176">Empresa: {companyName.slice(0, 34)}</text>}
+      {productName && <text x={195} y={85} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#536176">Produto: {productName.slice(0, 34)}</text>}
+      {imageSlot(300, productImage, 'PRODUTO', 'Foto do produto')}
+      <EditBtn onEdit={onEdit} x={w - 2} y={2} />
+    </g>
+  );
+}
+
 export function PlanningSymbol({ el, selected, onEdit }: SymProps) {
   const w = 190; const h = 142;
   const label = el.label || 'Controle da\nProdução';
