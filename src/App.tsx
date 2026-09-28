@@ -19,6 +19,7 @@ import {
   ShippingPointSymbol, SupermarketSymbol, TimelineSymbol, TruckSymbol,
   WorkCellSymbol,
 } from './MfvSymbols';
+import { exportJPEG, exportPDF, exportSVG, type PaperSize } from './export';
 import type { Scenario } from './types';
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
@@ -877,7 +878,7 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="save-state"><Save size={14} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div>
           <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
-          <button onClick={() => setExportOpen(true)}><Download size={17} /><span>Exportar</span></button>
+          <button onClick={() => { setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Exportar</span></button>
           <button onClick={() => { if (window.confirm('Limpar os elementos do canvas? A caixa de demanda será mantida.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => element.id === FIXED_PLANNING_ID), arrows: [] })); setSelectedId(null); } }}>
             <RotateCcw size={17} /><span>Limpar</span>
           </button>
@@ -915,7 +916,7 @@ export default function App() {
               <button onClick={() => setZoom(z => Math.min(4, z*1.15))}><ZoomIn size={15}/></button>
               <button onClick={() => { setZoom(1); setPan({x:80,y:80}); }} title="Reset"><Minus size={13}/></button>
             </div>
-            <button className="primary-button" onClick={() => setExportOpen(true)}>
+            <button className="primary-button" onClick={() => { setSelectedId(null); setExportOpen(true); }}>
               <Download size={17}/>Exportar
             </button>
           </div>
@@ -943,13 +944,13 @@ export default function App() {
           </defs>
           <rect className="canvas-bg" width="100%" height="100%" fill="url(#grid)"/>
 
-          <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+          <g data-export-content transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
             {canvas.arrows.map((arrow) => (
               <ArrowShape key={arrow.id} arrow={arrow} selected={selectedId===arrow.id}
                 onClick={(e) => { e.stopPropagation(); setSelectedId(arrow.id); if (e.detail===2) setEditingArrow(arrow); }} />
             ))}
             {canvas.arrows.filter(a => a.id===selectedId).map((arrow) => (
-              <g key={`h-${arrow.id}`}>
+              <g key={`h-${arrow.id}`} data-export-ui>
                 <circle cx={arrow.x1} cy={arrow.y1} r={7} fill="white" stroke="#0071e3" strokeWidth={2} style={{cursor:'move'}}
                   onMouseDown={(e) => { e.stopPropagation(); onHandleMouseDown(e, arrow.id, 'start'); }} />
                 <circle cx={arrow.x2} cy={arrow.y2} r={7} fill="white" stroke="#0071e3" strokeWidth={2} style={{cursor:'move'}}
@@ -1010,6 +1011,8 @@ export default function App() {
 
 function ExportModal({ svgRef, name, onClose }: { svgRef: React.RefObject<SVGSVGElement>; name: string; onClose: () => void }) {
   const [loading, setLoading] = useState<string|null>(null);
+  const [paperSize, setPaperSize] = useState<PaperSize>('a3');
+  const [error, setError] = useState<string|null>(null);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key==='Escape') onClose(); };
@@ -1019,48 +1022,23 @@ function ExportModal({ svgRef, name, onClose }: { svgRef: React.RefObject<SVGSVG
   const run = async (fmt: 'pdf'|'jpeg'|'svg') => {
     const svg = svgRef.current; if (!svg) return;
     setLoading(fmt);
+    setError(null);
     try {
-      const serializer = new XMLSerializer();
-      const svgStr = serializer.serializeToString(svg);
-      if (fmt === 'svg') {
-        const blob = new Blob([svgStr], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.download = `MFV_${name}.svg`; a.href = url; a.click();
-        URL.revokeObjectURL(url);
-        return;
-      }
-      const bbox = svg.getBoundingClientRect();
-      const c = document.createElement('canvas');
-      c.width = bbox.width*2; c.height = bbox.height*2;
-      const ctx = c.getContext('2d')!;
-      ctx.fillStyle = 'white'; ctx.fillRect(0,0,c.width,c.height);
-      const blob2 = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-      const url2 = URL.createObjectURL(blob2);
-      const img = new Image();
-      img.onload = async () => {
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        URL.revokeObjectURL(url2);
-        if (fmt === 'jpeg') {
-          const a = document.createElement('a'); a.download = `MFV_${name}.jpg`;
-          a.href = c.toDataURL('image/jpeg', 0.95); a.click();
-        } else {
-          const { default: jsPDF } = await import('jspdf');
-          const pdf = new jsPDF({ orientation:'l', unit:'mm', format:'a3' });
-          const pw = pdf.internal.pageSize.getWidth()-16;
-          const ph = (c.height/c.width)*pw;
-          pdf.addImage(c.toDataURL('image/png'), 'PNG', 8, 8, pw, ph);
-          pdf.save(`MFV_${name}.pdf`);
-        }
-        setLoading(null);
-      };
-      img.src = url2;
-    } catch { setLoading(null); }
+      const filename = `MFV_${name}`;
+      if (fmt === 'pdf') await exportPDF(svg, filename, paperSize);
+      if (fmt === 'jpeg') await exportJPEG(svg, filename);
+      if (fmt === 'svg') exportSVG(svg, filename);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'Não foi possível exportar o MFV.');
+    } finally {
+      setLoading(null);
+    }
   };
 
   const formats = [
-    { fmt:'pdf' as const, icon:<FileText size={20}/>, label:'PDF', desc:'A3 landscape · ideal para impressão' },
-    { fmt:'jpeg' as const, icon:<FileImage size={20}/>, label:'JPEG', desc:'Imagem · compatível com qualquer app' },
-    { fmt:'svg' as const, icon:<ImageDown size={20}/>, label:'SVG', desc:'Vetorial · editável no Illustrator' },
+    { fmt:'pdf' as const, icon:<FileText size={20}/>, label:'PDF para impressão', desc:`${paperSize.toUpperCase()} · orientação e escala automáticas` },
+    { fmt:'jpeg' as const, icon:<FileImage size={20}/>, label:'JPEG', desc:'Imagem recortada somente no MFV' },
+    { fmt:'svg' as const, icon:<ImageDown size={20}/>, label:'SVG', desc:'Vetorial recortado somente no MFV' },
   ];
 
   return (
@@ -1070,10 +1048,21 @@ function ExportModal({ svgRef, name, onClose }: { svgRef: React.RefObject<SVGSVG
         <header>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
             <Download size={20}/>
-            <div><h2 style={{margin:'0 0 2px'}}>Exportar MFV</h2><p style={{margin:0,color:'#8e8e93',fontSize:11}}>Escolha o formato.</p></div>
+            <div><h2 style={{margin:'0 0 2px'}}>Imprimir e exportar MFV</h2><p style={{margin:0,color:'#8e8e93',fontSize:11}}>Somente a área ocupada pelo mapa será exportada.</p></div>
           </div>
           <button className="icon-button" onClick={onClose}><X size={20}/></button>
         </header>
+        <div className="paper-size-picker">
+          <span>Tamanho da folha</span>
+          <div>
+            {(['a1','a2','a3','a4'] as PaperSize[]).map((size) => (
+              <button key={size} className={paperSize === size ? 'active' : ''} onClick={() => setPaperSize(size)} disabled={!!loading}>
+                {size.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <small>A orientação será definida automaticamente conforme o formato do MFV.</small>
+        </div>
         <div className="export-options">
           {formats.map(({fmt,icon,label,desc}) => (
             <button key={fmt} className={`export-option ${loading===fmt?'loading':''}`} onClick={() => run(fmt)} disabled={!!loading}>
@@ -1081,6 +1070,7 @@ function ExportModal({ svgRef, name, onClose }: { svgRef: React.RefObject<SVGSVG
               <div><strong>{label}</strong><span>{desc}</span></div>
             </button>
           ))}
+          {error && <p className="export-error">{error}</p>}
         </div>
       </section>
     </div>

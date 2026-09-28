@@ -27,7 +27,7 @@ function EditBtn({ onEdit, x = 0, y = 0 }: { onEdit: () => void; x?: number; y?:
 }
 
 function SelectionRect({ w, h }: { w: number; h: number }) {
-  return <rect x={-2} y={-2} width={w + 4} height={h + 4} rx={4}
+  return <rect className="selection-rect" x={-2} y={-2} width={w + 4} height={h + 4} rx={4}
     fill="none" stroke="#0071e3" strokeWidth={2} strokeDasharray="4 2" opacity={0.7} />;
 }
 

@@ -345,7 +345,17 @@ g:hover > .edit-btn-group { opacity: 1; }
 }
 .demand-modal-footer p { max-width: 380px; margin: 0; color: #77777c; font-size: 10px; line-height: 1.45; }
 
-.export-modal { max-width: 420px !important; }
+.export-modal { max-width: 460px !important; }
+.paper-size-picker { padding: 16px 22px 0; }
+.paper-size-picker > span { display: block; margin-bottom: 8px; color: #56565b; font-size: 11px; font-weight: 650; }
+.paper-size-picker > div { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.paper-size-picker button {
+  height: 38px; color: #48484a; background: #f5f5f7;
+  border: 1px solid #dfdfe4; border-radius: 9px; font-size: 12px; font-weight: 700;
+}
+.paper-size-picker button:hover:not(:disabled) { color: #0065c8; border-color: #8fc3f3; background: #f0f7ff; }
+.paper-size-picker button.active { color: white; background: #0071e3; border-color: #0071e3; box-shadow: 0 3px 8px rgba(0,113,227,.2); }
+.paper-size-picker small { display: block; margin-top: 8px; color: #8e8e93; font-size: 9.5px; line-height: 1.4; }
 .export-options { display: grid; gap: 8px; padding: 16px 22px; }
 .export-option {
   display: flex; align-items: center; gap: 14px; padding: 14px 16px;
@@ -358,6 +368,7 @@ g:hover > .edit-btn-group { opacity: 1; }
 .export-option > div { display: flex; flex-direction: column; gap: 2px; }
 .export-option strong { font-size: 13px; }
 .export-option span { color: #6e6e73; font-size: 11px; }
+.export-error { margin: 2px 0 0; padding: 9px 11px; color: #b42318; background: #fff1f0; border-radius: 8px; font-size: 10px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
