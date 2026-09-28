@@ -271,6 +271,13 @@ g:hover > .edit-btn-group { opacity: 1; }
   font: inherit; font-size: 12px; outline: none; transition: .13s; appearance: none;
 }
 .popover-field input:focus, .popover-field select:focus { background: #fff; border-color: #0071e3; box-shadow: 0 0 0 3px rgba(0,113,227,.1); }
+.popover-color-wrap { display: flex; align-items: center; gap: 10px; }
+.popover-color-wrap .popover-color-input {
+  width: 52px; height: 36px; flex: 0 0 52px; padding: 3px;
+  background: #f5f5f7; border: 1px solid #dedee3; border-radius: 8px;
+  appearance: auto; cursor: pointer;
+}
+.popover-color-wrap span { color: #6e6e73; font-size: 11px; font-weight: 650; letter-spacing: .04em; }
 .popover-input-wrap { position: relative; display: flex; align-items: center; }
 .popover-input-wrap input { padding-right: 38px; }
 .popover-input-wrap span { position: absolute; right: 9px; color: #8e8e93; font-size: 9px; font-weight: 600; pointer-events: none; }
