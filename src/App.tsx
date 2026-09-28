@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertTriangle, BookOpen, Calculator, CheckCircle2, Download, FileImage, FileText, GitCompareArrows,
-  ImageDown, LayoutTemplate, Loader2, Map, PanelLeftClose, PanelLeftOpen,
+  ImageDown, LayoutTemplate, Loader2, Map, Palette, PanelLeftClose, PanelLeftOpen,
   RotateCcw, Route, Save, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
 import {
@@ -33,7 +33,12 @@ const FIXED_PLANNING_ID = '__mfv-demand-planning__';
 const FIXED_IDENTIFICATION_ID = '__mfv-identification__';
 const GRID_SIZE = 20;
 const ALIGN_THRESHOLD = 8;
+const DEFAULT_THEME_COLOR = '#0071e3';
 type ActiveKind = 'current' | 'future';
+
+function validThemeColor(value: unknown) {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : DEFAULT_THEME_COLOR;
+}
 
 function elementDimensions(element: CanvasElement) {
   if (element.kind === 'identification') return { width: 390, height: 100 };
@@ -180,6 +185,7 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
     ],
     arrows: Array.isArray(raw?.arrows) ? raw.arrows : [],
     assumptions,
+    themeColor: validThemeColor(raw?.themeColor),
   };
 }
 
@@ -241,7 +247,7 @@ function syncCurrentIntoFuture(previousCurrent: CanvasState, current: CanvasStat
     });
   const futureElementIds = new Set(futureElements.map((element) => element.id));
   current.elements.forEach((element) => {
-    if (!previousElements.has(element.id) && !futureElementIds.has(element.id)) futureElements.push(cloneCanvas({ elements: [element], arrows: [], assumptions: current.assumptions }).elements[0]);
+    if (!previousElements.has(element.id) && !futureElementIds.has(element.id)) futureElements.push(JSON.parse(JSON.stringify(element)) as CanvasElement);
   });
 
   const previousArrows = new globalThis.Map(previousCurrent.arrows.map((arrow) => [arrow.id, arrow]));
@@ -263,7 +269,8 @@ function syncCurrentIntoFuture(previousCurrent: CanvasState, current: CanvasStat
     if (future.assumptions[key] === previousCurrent.assumptions[key]) assumptions[key] = current.assumptions[key];
   });
 
-  return normalizeCanvas({ ...future, elements: futureElements, arrows: futureArrows, assumptions });
+  const themeColor = future.themeColor === previousCurrent.themeColor ? current.themeColor : future.themeColor;
+  return normalizeCanvas({ ...future, elements: futureElements, arrows: futureArrows, assumptions, themeColor });
 }
 
 function createExcelTemplate(assumptions: ScenarioAssumptions, scenario: ActiveKind): CanvasState {
@@ -392,7 +399,7 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
 
 // ─── Render de elemento ───────────────────────────────────────────────────────
 
-function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void, simulation: ReturnType<typeof calculateCanvasSimulation>, availableMinutesPerDay: number) {
+function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void, simulation: ReturnType<typeof calculateCanvasSimulation>, availableMinutesPerDay: number, accentColor = DEFAULT_THEME_COLOR) {
   const p = {
     el,
     selected,
@@ -402,6 +409,7 @@ function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void,
     availableMinutesPerDay,
     leadTimeDays: simulation.leadTimeDays,
     processingTimeMin: simulation.processingTimeMin,
+    accentColor,
   };
   switch (el.kind) {
     case 'process':             return <ProcessSymbol {...p} />;
@@ -435,7 +443,24 @@ function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void,
 
 // ─── Thumbs da biblioteca ─────────────────────────────────────────────────────
 
-function LibraryThumb({ kind }: { kind: ElementKind }) {
+function LibraryThumb({ kind, accentColor }: { kind: ElementKind; accentColor: string }) {
+  const item = LIBRARY.find((candidate) => candidate.kind === kind);
+  if (item && !ARROW_KINDS.includes(kind)) {
+    const previewSimulation = calculateCanvasSimulation({ elements: [], arrows: [], assumptions: DEFAULT_ASSUMPTIONS, themeColor: accentColor });
+    const previewElement: CanvasElement = {
+      id: `preview-${kind}`,
+      kind,
+      x: 0,
+      y: 0,
+      label: item.defaultLabel,
+      data: { ...item.defaultData, ...(kind === 'truck' ? { color: accentColor } : {}) },
+    };
+    return (
+      <svg className="library-symbol-preview" width={52} height={52} viewBox={`${-6} ${-6} ${item.w + 12} ${item.h + 12}`} preserveAspectRatio="xMidYMid meet">
+        {renderElement(previewElement, false, () => undefined, previewSimulation, DEFAULT_ASSUMPTIONS.availableMinutesPerDay, accentColor)}
+      </svg>
+    );
+  }
   const S = 44;
   return (
     <svg width={S} height={S} viewBox={`0 0 ${S} ${S}`} style={{ overflow: 'visible' }}>
@@ -462,10 +487,10 @@ function LibraryThumb({ kind }: { kind: ElementKind }) {
       {kind==='note' && (<g><rect x={2} y={6} width={40} height={32} rx={2} fill="#fff9c4" stroke="#c8b800" strokeWidth={1.5}/><path d="M32,6 L42,16 L32,16 Z" fill="#e8cc00"/>{[14,20,26].map(y=><line key={y} x1={6} y1={y} x2={30} y2={y} stroke="#d4c400" strokeWidth={0.8}/>)}</g>)}
       {kind==='timeline' && (<g transform="translate(2,10)"><rect width={40} height={24} rx={2} fill="#f4f6fc" stroke="#6070a0" strokeWidth={1.5}/><path d="M0,18 L8,8 L16,18 L24,8 L32,18 L40,18" fill="none" stroke="#6070a0" strokeWidth={1.5}/></g>)}
       {kind==='legend' && (<g transform="scale(0.27) translate(2,2)"><rect width={160} height={120} rx={3} fill="white" stroke="#8a9099" strokeWidth={2}/><rect width={160} height={20} rx={3} fill="#9aa0ae"/>{['Empurrado','Puxado','Manual','Eletrônica'].map((l,i)=><text key={l} x={36} y={30+i*22} fontSize={12} fontFamily="Arial" fill="#363b43">{l}</text>)}</g>)}
-      {kind==='arrow-push' && (<polygon points="2,18 30,18 30,12 42,22 30,32 30,26 2,26" fill="#3d4451"/>)}
-      {kind==='arrow-pull' && (<g><path d="M4,22 Q4,8 22,8 Q40,8 40,22 Q40,36 22,36 Q12,36 8,30" fill="none" stroke="#0071e3" strokeWidth={2}/><polygon points="4,16 4,28 -1,22" fill="#0071e3"/><circle cx={8} cy={30} r={3} fill="#0071e3"/></g>)}
+      {kind==='arrow-push' && (<polygon points="2,18 30,18 30,12 42,22 30,32 30,26 2,26" fill={accentColor}/>)}
+      {kind==='arrow-pull' && (<g><path d="M4,22 Q4,8 22,8 Q40,8 40,22 Q40,36 22,36 Q12,36 8,30" fill="none" stroke={accentColor} strokeWidth={2}/><polygon points="4,16 4,28 -1,22" fill={accentColor}/><circle cx={8} cy={30} r={3} fill={accentColor}/></g>)}
       {kind==='arrow-info-manual' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#333" strokeWidth={2}/><polygon points="34,12 42,18 34,22" fill="#333"/></g>)}
-      {kind==='arrow-info-electronic' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#0071e3" strokeWidth={2} strokeDasharray="4 3"/><polygon points="19,10 16,19 20,19 17,28 25,17 21,17" fill="#0071e3"/><polygon points="34,12 42,18 34,22" fill="#0071e3"/></g>)}
+      {kind==='arrow-info-electronic' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke={accentColor} strokeWidth={2} strokeDasharray="4 3"/><polygon points="19,10 16,19 20,19 17,28 25,17 21,17" fill={accentColor}/><polygon points="34,12 42,18 34,22" fill={accentColor}/></g>)}
       {kind==='arrow-adjustment' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#cc4400" strokeWidth={2} strokeDasharray="2 2"/><polygon points="34,12 42,18 34,22" fill="#cc4400"/><circle cx={4} cy={36} r={3} fill="#cc4400"/></g>)}
       <g transform="scale(.3)"><ExtendedSymbol el={{ id:'thumb', kind, x:0, y:0, label:'', data:{} }} selected={false} onEdit={() => undefined} /></g>
     </svg>
@@ -479,7 +504,7 @@ const GROUP_LABELS: Record<string, string> = {
   operador: 'Operador', fluxo: 'Setas / Fluxo', anotacao: 'Anotação',
 };
 
-function LibraryPanel({ onDragStart }: { onDragStart: (item: LibraryItem, e: React.DragEvent) => void }) {
+function LibraryPanel({ onDragStart, accentColor }: { onDragStart: (item: LibraryItem, e: React.DragEvent) => void; accentColor: string }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const groups = ['material','logistica','kanban','informacao','operador','fluxo','anotacao'];
   return (
@@ -498,7 +523,7 @@ function LibraryPanel({ onDragStart }: { onDragStart: (item: LibraryItem, e: Rea
                 {items.map((item) => (
                   <div key={item.kind} className="library-item" draggable
                     onDragStart={(e) => onDragStart(item, e)} title={item.label}>
-                    <LibraryThumb kind={item.kind} />
+                    <LibraryThumb kind={item.kind} accentColor={accentColor} />
                     <span>{item.label}</span>
                   </div>
                 ))}
@@ -513,8 +538,8 @@ function LibraryPanel({ onDragStart }: { onDragStart: (item: LibraryItem, e: Rea
 
 // ─── Setas SVG ────────────────────────────────────────────────────────────────
 
-function ArrowShape({ arrow, selected, onClick }: {
-  arrow: CanvasArrow; selected: boolean; onClick: (e: React.MouseEvent) => void;
+function ArrowShape({ arrow, selected, onClick, accentColor }: {
+  arrow: CanvasArrow; selected: boolean; onClick: (e: React.MouseEvent) => void; accentColor: string;
 }) {
   const dx = arrow.x2 - arrow.x1; const dy = arrow.y2 - arrow.y1;
   const len = Math.sqrt(dx*dx + dy*dy);
@@ -527,7 +552,7 @@ function ArrowShape({ arrow, selected, onClick }: {
   const isPull = arrow.kind === 'arrow-pull';
   const isPush = arrow.kind === 'arrow-push';
 
-  const color = isPush ? '#3d4451' : (isPull||isElec) ? '#0071e3' : isAdj ? '#cc4400' : '#333';
+  const color = (isPush||isPull||isElec) ? accentColor : isAdj ? '#cc4400' : '#333';
   const dash = (isElec||isAdj) ? (isAdj?'3 3':'5 3') : 'none';
   const sw = selected ? 3 : 2;
   const id = arrow.id;
@@ -553,7 +578,7 @@ function ArrowShape({ arrow, selected, onClick }: {
           <path d={`M${arrow.x1},${arrow.y1} Q${mx},${my-30} ${ex},${ey}`}
             fill="none" stroke={color} strokeWidth={sw} strokeDasharray={dash} markerEnd={`url(#m-${id})`} />
           {isElec && <polygon points={`${mx-4},${my-26} ${mx-7},${my-16} ${mx-2},${my-16} ${mx-6},${my-8} ${mx+4},${my-20} ${mx-1},${my-20}`}
-            fill="#0071e3" opacity={0.85} />}
+            fill={accentColor} opacity={0.85} />}
           {isAdj && <circle cx={arrow.x1} cy={arrow.y1} r={4} fill={color} />}
         </>
       )}
@@ -999,7 +1024,9 @@ export default function App() {
       setCanvas((p) => ({ ...p, arrows: [...p.arrows, a] }));
       setSelectedId(a.id);
     } else {
-      const draft: CanvasElement = { id: makeId(), kind, x: x - lib.w/2, y: y - lib.h/2, label: lib.defaultLabel, data: { ...lib.defaultData } };
+      const draftData = { ...lib.defaultData };
+      if (kind === 'truck') draftData.color = canvas.themeColor;
+      const draft: CanvasElement = { id: makeId(), kind, x: x - lib.w/2, y: y - lib.h/2, label: lib.defaultLabel, data: draftData };
       const snapped = snapElementPosition(draft, draft.x, draft.y, canvas.elements);
       const el = { ...draft, x: snapped.x, y: snapped.y };
       setCanvas((p) => ({ ...p, elements: [...p.elements, el] }));
@@ -1125,6 +1152,17 @@ export default function App() {
     setDemandOpen(false);
   };
 
+  const applyThemeColor = (themeColor: string) => {
+    const color = validThemeColor(themeColor);
+    setCanvas((previous) => ({
+      ...previous,
+      themeColor: color,
+      elements: previous.elements.map((element) => element.kind === 'truck'
+        ? { ...element, data: { ...element.data, color } }
+        : element),
+    }));
+  };
+
   const applyExcelTemplate = () => {
     if (!window.confirm('Substituir este cenário pelo modelo base inspirado no Excel? Os dados atuais deste cenário serão removidos.')) return;
     setCanvas((previous) => createExcelTemplate(previous.assumptions, activeKind));
@@ -1156,7 +1194,7 @@ export default function App() {
           </button>
         </nav>
 
-        {!sidebarCollapsed && <LibraryPanel onDragStart={onLibDragStart} />}
+        {!sidebarCollapsed && <LibraryPanel onDragStart={onLibDragStart} accentColor={canvas.themeColor} />}
 
         <div className="sidebar-bottom">
           <div className="save-state"><Save size={14} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div>
@@ -1196,6 +1234,11 @@ export default function App() {
             {activeKind === 'future' && <div className="future-sync-status" title="O Estado futuro recebe automaticamente a estrutura do Estado atual. Alterações feitas aqui não retornam.">
               <CheckCircle2 size={15}/><span>Base sincronizada</span>
             </div>}
+            <label className="theme-color-button" title="Personalizar a cor de todo o MFV">
+              <Palette size={16}/><span>Cor do MFV</span>
+              <input type="color" value={canvas.themeColor} onChange={(event) => applyThemeColor(event.target.value)} aria-label="Cor do MFV" />
+              <i style={{ backgroundColor: canvas.themeColor }} />
+            </label>
             <div className="zoom-controls">
               <button onClick={() => setZoom(z => Math.max(0.15, z*.85))}><ZoomOut size={15}/></button>
               <span>{Math.round(zoom*100)}%</span>
@@ -1238,7 +1281,7 @@ export default function App() {
               </g>
             )}
             {canvas.arrows.map((arrow) => (
-              <ArrowShape key={arrow.id} arrow={arrow} selected={selectedId===arrow.id}
+              <ArrowShape key={arrow.id} arrow={arrow} selected={selectedId===arrow.id} accentColor={canvas.themeColor}
                 onClick={(e) => { e.stopPropagation(); setSelectedId(arrow.id); if (e.detail===2) setEditingArrow(arrow); }} />
             ))}
             {canvas.arrows.filter(a => a.id===selectedId).map((arrow) => (
@@ -1259,7 +1302,7 @@ export default function App() {
                   openElementEditor(el);
                 }}
                 onDoubleClick={(e) => { e.stopPropagation(); openElementEditor(el); }}>
-                {renderElement(el, selectedId===el.id, () => openElementEditor(el), simulation, canvas.assumptions.availableMinutesPerDay)}
+                {renderElement(el, selectedId===el.id, () => openElementEditor(el), simulation, canvas.assumptions.availableMinutesPerDay, canvas.themeColor)}
               </g>
             ))}
             {automaticTimelinePosition && (
@@ -1271,6 +1314,7 @@ export default function App() {
                   timelineSteps={simulation.timelineSteps}
                   leadTimeDays={simulation.leadTimeDays}
                   processingTimeMin={simulation.processingTimeMin}
+                  accentColor={canvas.themeColor}
                 />
               </g>
             )}

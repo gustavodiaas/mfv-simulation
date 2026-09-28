@@ -82,6 +82,7 @@ export interface CanvasState {
   elements: CanvasElement[];
   arrows: CanvasArrow[];
   assumptions: ScenarioAssumptions;
+  themeColor: string;
 }
 
 export interface LibraryItem {

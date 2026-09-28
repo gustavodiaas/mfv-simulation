@@ -90,16 +90,17 @@ button, input, select { font: inherit; cursor: pointer; }
   padding: 4px 6px; color: #aeaeb2;
   font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
 }
-.library-items { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 0 2px; }
+.library-items { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 2px; }
 .library-item {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 8px 4px 6px; background: white;
-  border: 1px solid rgba(0,0,0,.08); border-radius: 10px;
+  min-height: 82px; padding: 8px 5px 7px; background: linear-gradient(180deg,#fff,#fafafd);
+  border: 1px solid rgba(0,0,0,.075); border-radius: 12px;
   font-size: 8.5px; font-weight: 550; text-align: center;
-  color: #3a3a3c; cursor: grab; transition: .13s;
+  color: #3a3a3c; cursor: grab; transition: .16s ease;
   user-select: none;
 }
-.library-item:hover { background: #f0f6ff; border-color: #90c4f5; color: #0055c8; }
+.library-item:hover { background: white; border-color: #9fc8ee; color: #0055c8; transform: translateY(-2px); box-shadow: 0 7px 16px rgba(34,67,105,.11); }
+.library-symbol-preview { overflow: visible; filter: drop-shadow(0 2px 2px rgba(20,35,55,.1)); }
 .library-item:active { cursor: grabbing; }
 .sidebar-collapsed .library-panel { display: none; }
 
@@ -204,6 +205,15 @@ button, input, select { font: inherit; cursor: pointer; }
   border: 1px solid #bfe6cf; border-radius: 9px; font-size: 10px; font-weight: 650;
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
 }
+.theme-color-button {
+  position: relative; height: 36px; padding: 0 10px; display: inline-flex; align-items: center; gap: 7px;
+  color: #3a3a3f; background: rgba(255,255,255,.82); border: 1px solid #d8d8dd; border-radius: 9px;
+  font-size: 10px; font-weight: 650; white-space: nowrap; cursor: pointer; transition: .15s ease;
+}
+.theme-color-button:hover { background: white; border-color: #b8b8bf; box-shadow: 0 3px 10px rgba(0,0,0,.07); }
+.theme-color-button input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.theme-color-button i { width: 18px; height: 18px; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px #c6c6cc; }
+.library-symbol-preview .edit-btn-group { display: none; }
 .icon-button { width: 32px; height: 32px; color: #6e6e73; background: #f2f2f4; border-radius: 50%; }
 .icon-button:hover { color: #1d1d1f; }
 
