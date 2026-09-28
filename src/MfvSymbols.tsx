@@ -9,7 +9,12 @@ interface SymProps {
   availableMinutesPerDay?: number;
   leadTimeDays?: number;
   processingTimeMin?: number;
-  timelineSteps?: { inventoryDays: number; processTimeMin: number }[];
+  timelineSteps?: {
+    inventoryDays: number;
+    processTimeMin: number;
+    inventoryWidth?: number;
+    processWidth?: number;
+  }[];
 }
 
 function sel(selected: boolean, base: string) { return selected ? '#0071e3' : base; }
@@ -537,12 +542,15 @@ export function NoteSymbol({ el, selected, onEdit }: SymProps) {
 // ── Linha do tempo (dente de serra) ──────────────────────────────────────────
 export function TimelineSymbol({ selected, leadTimeDays = 0, processingTimeMin = 0, timelineSteps = [] }: SymProps) {
   const labelWidth = 150;
-  const segmentWidth = 76;
   const summaryWidth = 220;
   const topY = 24;
   const bottomY = 56;
   const steps = timelineSteps.length ? timelineSteps : [{ inventoryDays: 0, processTimeMin: 0 }];
-  const summaryX = labelWidth + steps.length * segmentWidth * 2;
+  const stepWidths = steps.map((step) => ({
+    inventory: Math.max(60, step.inventoryWidth ?? 60),
+    process: Math.max(100, step.processWidth ?? 150),
+  }));
+  const summaryX = labelWidth + stepWidths.reduce((total, widths) => total + widths.inventory + widths.process, 0);
   const w = summaryX + summaryWidth;
   const h = 78;
   const format = (value: number, digits: number) => value.toLocaleString('pt-BR', {
@@ -556,21 +564,24 @@ export function TimelineSymbol({ selected, leadTimeDays = 0, processingTimeMin =
       <text x={labelWidth - 12} y={bottomY + 16} textAnchor="end" fontSize={10} fontWeight="700" fontFamily="Arial" fill="#1d2128">T/C (MIN)</text>
 
       {steps.map((step, index) => {
-        const startX = labelWidth + index * segmentWidth * 2;
-        const middleX = startX + segmentWidth;
-        const endX = middleX + segmentWidth;
+        const widths = stepWidths[index];
+        const startX = labelWidth + stepWidths
+          .slice(0, index)
+          .reduce((total, previous) => total + previous.inventory + previous.process, 0);
+        const middleX = startX + widths.process;
+        const endX = middleX + widths.inventory;
         return (
           <g key={index}>
-            <path d={`M${startX},${topY} H${middleX} V${bottomY} H${endX} V${topY}`}
+            <path d={`M${startX},${bottomY} H${middleX} V${topY} H${endX} V${bottomY}`}
               fill="none" stroke="#24262b" strokeWidth={1.4} />
-            <text x={startX + segmentWidth / 2} y={topY - 7} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">
+            <text x={middleX + widths.inventory / 2} y={topY - 7} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">
               {format(step.inventoryDays, 2)}
             </text>
-            <text x={startX + segmentWidth / 2} y={topY + 10} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#35383e">Dias</text>
-            <text x={middleX + segmentWidth / 2} y={bottomY - 7} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">
+            <text x={middleX + widths.inventory / 2} y={topY + 10} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#35383e">Dias</text>
+            <text x={startX + widths.process / 2} y={bottomY - 7} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">
               {format(step.processTimeMin, 1)}
             </text>
-            <text x={middleX + segmentWidth / 2} y={bottomY + 15} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#35383e">Minutos</text>
+            <text x={startX + widths.process / 2} y={bottomY + 15} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#35383e">Minutos</text>
           </g>
         );
       })}

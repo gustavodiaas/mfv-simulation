@@ -29,7 +29,16 @@ const STORAGE_KEY = 'mfv-canvas:v2';
 const LEGACY_STORAGE_KEY = 'mfv-simulation:v2';
 const FIXED_PLANNING_ID = '__mfv-demand-planning__';
 const FIXED_IDENTIFICATION_ID = '__mfv-identification__';
+const GRID_SIZE = 20;
+const ALIGN_THRESHOLD = 8;
 type ActiveKind = 'current' | 'future';
+
+function elementDimensions(element: CanvasElement) {
+  if (element.kind === 'identification') return { width: 390, height: 100 };
+  if (element.kind === 'planning') return { width: 190, height: 142 };
+  const item = LIBRARY.find((candidate) => candidate.kind === element.kind);
+  return { width: item?.w || 120, height: item?.h || 80 };
+}
 
 const DEFAULT_ASSUMPTIONS: ScenarioAssumptions = {
   monthlyDemand: 5,
@@ -90,6 +99,8 @@ function calculateCanvasSimulation(canvas: CanvasState) {
       ? Math.max(0, Number(inventoryElements[index]?.data.qty) || 0) / dailyDemand
       : 0,
     processTimeMin: Math.max(0, Number(processElements[index]?.data.tc) || 0) / 60,
+    inventoryWidth: inventoryElements[index] ? elementDimensions(inventoryElements[index]).width : 60,
+    processWidth: processElements[index] ? elementDimensions(processElements[index]).width : 150,
   }));
   return {
     dailyDemand,
@@ -763,6 +774,51 @@ type Dragging =
   | { type: 'arrow-point'; id: string; point: 'start' | 'end' }
   | { type: 'pan'; startX: number; startY: number; origX: number; origY: number };
 
+type AlignmentGuides = { x?: number; y?: number };
+
+function snapElementPosition(target: CanvasElement, x: number, y: number, elements: CanvasElement[]) {
+  const { width, height } = elementDimensions(target);
+  let snappedX = Math.round(x / GRID_SIZE) * GRID_SIZE;
+  let snappedY = Math.round(y / GRID_SIZE) * GRID_SIZE;
+  let guideX: number | undefined;
+  let guideY: number | undefined;
+  let bestX = ALIGN_THRESHOLD + 1;
+  let bestY = ALIGN_THRESHOLD + 1;
+
+  for (const other of elements) {
+    if (other.id === target.id) continue;
+    const otherSize = elementDimensions(other);
+    const xMatches = [
+      { position: other.x, line: other.x },
+      { position: other.x + otherSize.width / 2 - width / 2, line: other.x + otherSize.width / 2 },
+      { position: other.x + otherSize.width - width, line: other.x + otherSize.width },
+    ];
+    const yMatches = [
+      { position: other.y, line: other.y },
+      { position: other.y + otherSize.height / 2 - height / 2, line: other.y + otherSize.height / 2 },
+      { position: other.y + otherSize.height - height, line: other.y + otherSize.height },
+    ];
+    for (const match of xMatches) {
+      const distance = Math.abs(x - match.position);
+      if (distance <= ALIGN_THRESHOLD && distance < bestX) {
+        bestX = distance;
+        snappedX = match.position;
+        guideX = match.line;
+      }
+    }
+    for (const match of yMatches) {
+      const distance = Math.abs(y - match.position);
+      if (distance <= ALIGN_THRESHOLD && distance < bestY) {
+        bestY = distance;
+        snappedY = match.position;
+        guideY = match.line;
+      }
+    }
+  }
+
+  return { x: snappedX, y: snappedY, guides: { x: guideX, y: guideY } as AlignmentGuides };
+}
+
 function ScenarioPill({ kind }: { kind: ActiveKind }) {
   return <span className={`scenario-pill ${kind}`}>{kind==='current'?'Estado atual':'Estado futuro'}</span>;
 }
@@ -775,7 +831,7 @@ export default function App() {
   const timelineSourceElements = [...simulation.processElements, ...simulation.inventoryElements];
   const automaticTimelinePosition = timelineSourceElements.length
     ? {
-        x: Math.max(20, Math.min(...timelineSourceElements.map((element) => element.x)) - 165),
+        x: Math.max(20, Math.min(...timelineSourceElements.map((element) => element.x)) - 150),
         y: Math.max(...timelineSourceElements.map((element) => element.y)) + 225,
       }
     : null;
@@ -795,11 +851,13 @@ export default function App() {
   const [editingEl, setEditingEl] = useState<CanvasElement | null>(null);
   const [editingArrow, setEditingArrow] = useState<CanvasArrow | null>(null);
   const [dragging, setDragging] = useState<Dragging | null>(null);
+  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [saved, setSaved] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [demandOpen, setDemandOpen] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
+  const dragMovedRef = useRef(false);
 
   useEffect(() => {
     setSelectedId(null);
@@ -843,7 +901,9 @@ export default function App() {
       setCanvas((p) => ({ ...p, arrows: [...p.arrows, a] }));
       setSelectedId(a.id);
     } else {
-      const el: CanvasElement = { id: makeId(), kind, x: x - lib.w/2, y: y - lib.h/2, label: lib.defaultLabel, data: { ...lib.defaultData } };
+      const draft: CanvasElement = { id: makeId(), kind, x: x - lib.w/2, y: y - lib.h/2, label: lib.defaultLabel, data: { ...lib.defaultData } };
+      const snapped = snapElementPosition(draft, draft.x, draft.y, canvas.elements);
+      const el = { ...draft, x: snapped.x, y: snapped.y };
       setCanvas((p) => ({ ...p, elements: [...p.elements, el] }));
       setSelectedId(el.id);
     }
@@ -863,6 +923,7 @@ export default function App() {
     e.stopPropagation();
     const el = canvas.elements.find((el) => el.id === id)!;
     setSelectedId(id);
+    dragMovedRef.current = false;
     setDragging({ type: 'element', id, startX: e.clientX, startY: e.clientY, origX: el.x, origY: el.y });
   };
 
@@ -879,8 +940,15 @@ export default function App() {
       } else if (dragging.type === 'element') {
         const dx = (e.clientX - dragging.startX) / zoom;
         const dy = (e.clientY - dragging.startY) / zoom;
-        setCanvas((p) => ({ ...p, elements: p.elements.map((el) =>
-          el.id === dragging.id ? { ...el, x: dragging.origX+dx, y: dragging.origY+dy } : el) }));
+        if (Math.abs(e.clientX - dragging.startX) > 4 || Math.abs(e.clientY - dragging.startY) > 4) dragMovedRef.current = true;
+        setCanvas((p) => {
+          const target = p.elements.find((element) => element.id === dragging.id);
+          if (!target) return p;
+          const snapped = snapElementPosition(target, dragging.origX + dx, dragging.origY + dy, p.elements);
+          setAlignmentGuides(snapped.guides);
+          return { ...p, elements: p.elements.map((el) =>
+            el.id === dragging.id ? { ...el, x: snapped.x, y: snapped.y } : el) };
+        });
       } else if (dragging.type === 'arrow-point') {
         const rect = svgRef.current?.getBoundingClientRect();
         if (!rect) return;
@@ -889,7 +957,7 @@ export default function App() {
           a.id !== dragging.id ? a : dragging.point === 'start' ? { ...a, x1:x, y1:y } : { ...a, x2:x, y2:y }) }));
       }
     };
-    const onUp = () => setDragging(null);
+    const onUp = () => { setDragging(null); setAlignmentGuides({}); };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
@@ -929,6 +997,16 @@ export default function App() {
     setCanvas((p) => ({ ...p, elements: p.elements.filter((el) => el.id!==id), arrows: p.arrows.filter((a) => a.id!==id) }));
     setEditingEl(null); setSelectedId(null);
   };
+
+  const guideBounds = canvas.elements.reduce((bounds, element) => {
+    const size = elementDimensions(element);
+    return {
+      minX: Math.min(bounds.minX, element.x),
+      minY: Math.min(bounds.minY, element.y),
+      maxX: Math.max(bounds.maxX, element.x + size.width),
+      maxY: Math.max(bounds.maxY, element.y + size.height),
+    };
+  }, { minX: 0, minY: 0, maxX: 1600, maxY: 700 });
   const updateArrow = (id: string, patch: Partial<CanvasArrow>) => {
     setCanvas((p) => ({ ...p, arrows: p.arrows.map((a) => a.id===id ? { ...a, ...patch } : a) }));
     if (editingArrow?.id === id) setEditingArrow((p) => p ? { ...p, ...patch } : p);
@@ -1063,6 +1141,12 @@ export default function App() {
           <rect className="canvas-bg" width="100%" height="100%" fill="url(#grid)"/>
 
           <g data-export-content transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+            {(alignmentGuides.x !== undefined || alignmentGuides.y !== undefined) && (
+              <g data-export-ui pointerEvents="none">
+                {alignmentGuides.x !== undefined && <line x1={alignmentGuides.x} y1={guideBounds.minY - 80} x2={alignmentGuides.x} y2={guideBounds.maxY + 140} stroke="#0071e3" strokeWidth={1.2} strokeDasharray="6 4" />}
+                {alignmentGuides.y !== undefined && <line x1={guideBounds.minX - 80} y1={alignmentGuides.y} x2={guideBounds.maxX + 140} y2={alignmentGuides.y} stroke="#0071e3" strokeWidth={1.2} strokeDasharray="6 4" />}
+              </g>
+            )}
             {canvas.arrows.map((arrow) => (
               <ArrowShape key={arrow.id} arrow={arrow} selected={selectedId===arrow.id}
                 onClick={(e) => { e.stopPropagation(); setSelectedId(arrow.id); if (e.detail===2) setEditingArrow(arrow); }} />
@@ -1077,8 +1161,13 @@ export default function App() {
             ))}
             {canvas.elements.filter((el) => el.kind !== 'timeline').map((el) => (
               <g key={el.id} transform={`translate(${el.x},${el.y})`}
-                style={{ cursor:'move', userSelect:'none' }}
+                style={{ cursor: el.kind === 'identification' ? 'pointer' : 'move', userSelect:'none' }}
                 onMouseDown={(e) => onElMouseDown(e, el.id)}
+                onClick={(e) => {
+                  if (el.kind !== 'identification' || dragMovedRef.current) return;
+                  e.stopPropagation();
+                  openElementEditor(el);
+                }}
                 onDoubleClick={(e) => { e.stopPropagation(); openElementEditor(el); }}>
                 {renderElement(el, selectedId===el.id, () => openElementEditor(el), simulation, canvas.assumptions.availableMinutesPerDay)}
               </g>
