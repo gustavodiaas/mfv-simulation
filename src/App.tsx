@@ -798,15 +798,18 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
       + simulation.waitingTimeMin * 60
       + route.length * 15,
   );
-  const launched = Math.max(0, Math.floor(elapsedSec / simulation.taktTimeSec) + 1);
-  const firstVisible = Math.max(0, launched - 18);
-  const tokens = Array.from({ length: launched - firstVisible }, (_, offset) => {
+  const hasThroughput = Number.isFinite(completionInterval) && completionInterval > 0;
+  const flowInterval = hasThroughput
+    ? Math.max(simulation.taktTimeSec, completionInterval)
+    : Infinity;
+  const releasedToFlow = hasThroughput
+    ? Math.max(0, Math.floor(elapsedSec / flowInterval) + 1)
+    : 0;
+  const firstVisible = Math.max(0, releasedToFlow - 18);
+  const tokens = Array.from({ length: releasedToFlow - firstVisible }, (_, offset) => {
     const index = firstVisible + offset;
-    const age = Math.max(0, elapsedSec - index * simulation.taktTimeSec);
-    const queueDelay = Number.isFinite(completionInterval)
-      ? index * Math.max(0, completionInterval - simulation.taktTimeSec)
-      : 0;
-    const progress = Math.min(1, age / (nominalLeadSec + queueDelay));
+    const age = Math.max(0, elapsedSec - index * flowInterval);
+    const progress = Math.min(1, age / nominalLeadSec);
     const point = pointAlongRoute(route, progress);
     const truck = truckCenters.find((center) => Math.hypot(point.x - center.x, point.y - center.y) < 58);
     return { index, progress, point, truckId: truck?.id };
