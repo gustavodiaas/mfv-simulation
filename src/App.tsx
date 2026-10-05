@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AlertTriangle, BookOpen, Calculator, CheckCircle2, Download, FileImage, FileText, GitCompareArrows,
-  ImageDown, LayoutTemplate, Loader2, Map, Palette, PanelLeftClose, PanelLeftOpen,
+  AlertTriangle, BarChart3, BookOpen, Calculator, CheckCircle2, Copy, Download, FileImage, FileText, GitCompareArrows,
+  ImageDown, LayoutTemplate, Loader2, Map, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Plus,
   RotateCcw, Route, Save, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
 import {
@@ -26,8 +26,9 @@ import truckThreeQuarter from './assets/truck-three-quarter.png';
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'mfv-canvas:v3';
-const PREVIOUS_STORAGE_KEY = 'mfv-canvas:v2';
+const STORAGE_KEY = 'mfv-canvas:v4';
+const PREVIOUS_STORAGE_KEY = 'mfv-canvas:v3';
+const OLDER_STORAGE_KEY = 'mfv-canvas:v2';
 const LEGACY_STORAGE_KEY = 'mfv-simulation:v2';
 const FIXED_PLANNING_ID = '__mfv-demand-planning__';
 const FIXED_IDENTIFICATION_ID = '__mfv-identification__';
@@ -35,6 +36,19 @@ const GRID_SIZE = 20;
 const ALIGN_THRESHOLD = 8;
 const DEFAULT_THEME_COLOR = '#0071e3';
 type ActiveKind = 'current' | 'future';
+type ScenarioPreset = 'current' | 'demand-up' | 'demand-down' | 'setup-half' | 'availability-up' | 'bottleneck-resource' | 'quality-up';
+
+interface FutureVariant {
+  id: string;
+  name: string;
+  canvas: CanvasState;
+}
+
+interface CanvasWorkspace {
+  current: CanvasState;
+  futures: FutureVariant[];
+  activeFutureId: string;
+}
 
 function validThemeColor(value: unknown) {
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : DEFAULT_THEME_COLOR;
@@ -66,16 +80,23 @@ function calculateScenario(assumptions: ScenarioAssumptions) {
   return { dailyDemand, taktTimeSec };
 }
 
-function calculateProcessLoad(element: CanvasElement, taktTimeSec: number) {
+function calculateProcessLoad(element: CanvasElement, dailyDemand: number, cumulativeYield: number, availableMinutesPerDay: number) {
   const cycleTime = Math.max(0, Number(element.data.tc) || 0);
   const setupPerUnit = (Math.max(0, Number(element.data.setup) || 0) * 60)
     / Math.max(1, Number(element.data.lote) || 1);
   const resources = Math.max(1, Number(element.data.recurso) || 1);
   const availability = Math.min(100, Math.max(1, Number(element.data.disp) || 100)) / 100;
   const effectiveCycleSec = (cycleTime + setupPerUnit) / (resources * availability);
-  const loadPercent = taktTimeSec > 0 ? (effectiveCycleSec / taktTimeSec) * 100 : 0;
+  const rawCapacityPerDay = effectiveCycleSec > 0
+    ? (availableMinutesPerDay * 60) / effectiveCycleSec
+    : Infinity;
+  const requiredInputPerDay = cumulativeYield > 0 ? dailyDemand / cumulativeYield : Infinity;
+  const capacityPerDay = rawCapacityPerDay * cumulativeYield;
+  const loadPercent = rawCapacityPerDay > 0 && Number.isFinite(requiredInputPerDay)
+    ? (requiredInputPerDay / rawCapacityPerDay) * 100
+    : 0;
   const valid = cycleTime > 0;
-  return { effectiveCycleSec, loadPercent, valid, overloaded: valid && loadPercent > 100 };
+  return { effectiveCycleSec, loadPercent, valid, overloaded: valid && loadPercent > 100, capacityPerDay, requiredInputPerDay };
 }
 
 function calculateCanvasSimulation(canvas: CanvasState) {
@@ -83,28 +104,37 @@ function calculateCanvasSimulation(canvas: CanvasState) {
   const processElements = canvas.elements
     .filter((element) => ['process','shared-process'].includes(element.kind))
     .sort((a, b) => a.x - b.x);
-  const processMetrics = processElements.map((element) => {
-    const load = calculateProcessLoad(element, taktTimeSec);
-    const capacityPerDay = load.effectiveCycleSec > 0
-      ? (canvas.assumptions.availableMinutesPerDay * 60) / load.effectiveCycleSec
-      : Infinity;
-    return { element, ...load, capacityPerDay };
-  });
+  let cumulativeYield = 1;
+  const processMetrics = [...processElements].reverse().map((element) => {
+    const quality = Math.min(100, Math.max(0.1, Number(element.data.qualidade) || 100)) / 100;
+    cumulativeYield *= quality;
+    return {
+      element,
+      quality,
+      ...calculateProcessLoad(element, dailyDemand, cumulativeYield, canvas.assumptions.availableMinutesPerDay),
+    };
+  }).reverse();
   const finiteCapacities = processMetrics.map((metric) => metric.capacityPerDay).filter(Number.isFinite);
   const bottleneckCapacity = finiteCapacities.length ? Math.min(...finiteCapacities) : 0;
   const bottleneck = processMetrics.find((metric) => metric.capacityPerDay === bottleneckCapacity)?.element;
-  const stockKinds: ElementKind[] = ['inventory','safety-stock','buffer','supermarket','fifo'];
+  const stockKinds: ElementKind[] = ['inventory','safety-stock','buffer','supermarket','fifo','waiting-time'];
   const inventoryElements = canvas.elements
     .filter((element) => stockKinds.includes(element.kind))
     .sort((a, b) => a.x - b.x);
-  const totalInventory = inventoryElements
+  const physicalInventoryElements = inventoryElements.filter((element) => element.kind !== 'waiting-time');
+  const waitingElements = inventoryElements.filter((element) => element.kind === 'waiting-time');
+  const totalInventory = physicalInventoryElements
     .reduce((sum, element) => sum + Math.max(0, Number(element.data.qty) || 0), 0);
   const inventoryDays = dailyDemand > 0 ? totalInventory / dailyDemand : 0;
+  const waitingTimeMin = waitingElements.reduce((sum, element) => sum + Math.max(0, Number(element.data.durationMin) || 0), 0);
+  const waitingLeadTimeDays = canvas.assumptions.availableMinutesPerDay > 0 ? waitingTimeMin / canvas.assumptions.availableMinutesPerDay : 0;
   const processingTimeMin = processElements.reduce((sum, element) => sum + Math.max(0, Number(element.data.tc) || 0), 0) / 60;
   const timelineSteps = Array.from({ length: Math.max(processElements.length, inventoryElements.length) }, (_, index) => ({
-    inventoryDays: dailyDemand > 0
-      ? Math.max(0, Number(inventoryElements[index]?.data.qty) || 0) / dailyDemand
-      : 0,
+    inventoryDays: inventoryElements[index]?.kind === 'waiting-time'
+      ? Math.max(0, Number(inventoryElements[index]?.data.durationMin) || 0) / canvas.assumptions.availableMinutesPerDay
+      : dailyDemand > 0
+        ? Math.max(0, Number(inventoryElements[index]?.data.qty) || 0) / dailyDemand
+        : 0,
     processTimeMin: Math.max(0, Number(processElements[index]?.data.tc) || 0) / 60,
     inventoryWidth: inventoryElements[index] ? elementDimensions(inventoryElements[index]).width : 60,
     processWidth: processElements[index] ? elementDimensions(processElements[index]).width : 150,
@@ -119,8 +149,10 @@ function calculateCanvasSimulation(canvas: CanvasState) {
     bottleneckCapacity,
     bottleneck,
     inventoryDays,
+    waitingTimeMin,
+    waitingLeadTimeDays,
     processingTimeMin,
-    leadTimeDays: inventoryDays,
+    leadTimeDays: inventoryDays + waitingLeadTimeDays,
     timelineSteps,
     inventoryElements,
   };
@@ -181,7 +213,10 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
       fixedIdentification,
       fixedPlanning,
       ...elements.filter((element) => element !== existingPlanning && element !== existingIdentification
-        && element.id !== FIXED_PLANNING_ID && element.id !== FIXED_IDENTIFICATION_ID && element.kind !== 'timeline'),
+        && element.id !== FIXED_PLANNING_ID && element.id !== FIXED_IDENTIFICATION_ID && element.kind !== 'timeline')
+        .map((element) => ['process','shared-process'].includes(element.kind) && element.data.qualidade === undefined
+          ? { ...element, data: { ...element.data, qualidade: 100 } }
+          : element),
     ],
     arrows: Array.isArray(raw?.arrows) ? raw.arrows : [],
     assumptions,
@@ -289,7 +324,7 @@ function createExcelTemplate(assumptions: ScenarioAssumptions, scenario: ActiveK
     x: 220 + index * 210,
     y: 250,
     label,
-    data: { tc, setup: 0, lote: 1, op: 1, recurso: 1, disp: 100 },
+    data: { tc, setup: 0, lote: 1, op: 1, recurso: 1, disp: 100, qualidade: 100 },
   }));
   const inventories = processSpecs.map((_, index): CanvasElement => ({
     id: `${scenario}-inventory-${index + 1}-${makeId()}`,
@@ -320,39 +355,77 @@ function createExcelTemplate(assumptions: ScenarioAssumptions, scenario: ActiveK
   });
 }
 
-function loadCanvases(): Record<ActiveKind, CanvasState> {
+function createFutureVariant(current: CanvasState, name = 'Cenário base', id = `future-${makeId()}`): FutureVariant {
+  return { id, name, canvas: cloneCanvas(current) };
+}
+
+function loadWorkspace(): CanvasWorkspace {
   try {
-    const s = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEY);
     const previousCanvasRaw = localStorage.getItem(PREVIOUS_STORAGE_KEY);
+    const olderCanvasRaw = localStorage.getItem(OLDER_STORAGE_KEY);
     const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
     const legacy = legacyRaw ? JSON.parse(legacyRaw) as { current?: Scenario; future?: Scenario } : undefined;
-    if (s) {
-      const parsed = JSON.parse(s) as Partial<Record<ActiveKind, CanvasState>>;
+    if (saved) {
+      const parsed = JSON.parse(saved) as Partial<CanvasWorkspace>;
       const current = normalizeCanvas(parsed.current, legacy?.current);
+      const futures = Array.isArray(parsed.futures) && parsed.futures.length
+        ? parsed.futures.map((variant) => ({ ...variant, canvas: normalizeCanvas(variant.canvas, legacy?.future) }))
+        : [createFutureVariant(current)];
       return {
         current,
-        future: parsed.future ? normalizeCanvas(parsed.future, legacy?.future) : cloneCanvas(current),
+        futures,
+        activeFutureId: futures.some((variant) => variant.id === parsed.activeFutureId) ? String(parsed.activeFutureId) : futures[0].id,
       };
     }
-    if (previousCanvasRaw) {
-      const parsed = JSON.parse(previousCanvasRaw) as Partial<Record<ActiveKind, CanvasState>>;
+    const priorRaw = previousCanvasRaw ?? olderCanvasRaw;
+    if (priorRaw) {
+      const parsed = JSON.parse(priorRaw) as Partial<Record<ActiveKind, CanvasState>>;
       const current = normalizeCanvas(parsed.current, legacy?.current);
-      const result = { current, future: cloneCanvas(current) };
+      const future = parsed.future ? normalizeCanvas(parsed.future, legacy?.future) : cloneCanvas(current);
+      const result: CanvasWorkspace = { current, futures: [{ id: 'future-base', name: 'Cenário base', canvas: future }], activeFutureId: 'future-base' };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
       return result;
     }
     const current = normalizeCanvas(undefined, legacy?.current);
-    return { current, future: cloneCanvas(current) };
+    const variant = createFutureVariant(current, 'Cenário base', 'future-base');
+    return { current, futures: [variant], activeFutureId: variant.id };
   } catch { /* ignore */ }
   const current = normalizeCanvas(undefined);
-  return { current, future: cloneCanvas(current) };
+  const variant = createFutureVariant(current, 'Cenário base', 'future-base');
+  return { current, futures: [variant], activeFutureId: variant.id };
+}
+
+function canvasForPreset(current: CanvasState, preset: ScenarioPreset) {
+  const next = cloneCanvas(current);
+  if (preset === 'demand-up') next.assumptions.monthlyDemand *= 1.2;
+  if (preset === 'demand-down') next.assumptions.monthlyDemand *= 0.8;
+  if (preset === 'setup-half') next.elements = next.elements.map((element) => ['process','shared-process'].includes(element.kind)
+    ? { ...element, data: { ...element.data, setup: Math.max(0, Number(element.data.setup) || 0) * 0.5 } }
+    : element);
+  if (preset === 'availability-up') next.elements = next.elements.map((element) => ['process','shared-process'].includes(element.kind)
+    ? { ...element, data: { ...element.data, disp: Math.min(100, (Number(element.data.disp) || 100) + 10) } }
+    : element);
+  if (preset === 'quality-up') next.elements = next.elements.map((element) => ['process','shared-process'].includes(element.kind)
+    ? { ...element, data: { ...element.data, qualidade: Math.min(100, (Number(element.data.qualidade) || 100) + 5) } }
+    : element);
+  if (preset === 'bottleneck-resource') {
+    const bottleneckId = calculateCanvasSimulation(next).bottleneck?.id;
+    if (bottleneckId) next.elements = next.elements.map((element) => element.id === bottleneckId
+      ? { ...element, data: { ...element.data, recurso: Math.max(1, Number(element.data.recurso) || 1) + 1 } }
+      : element);
+  }
+  next.elements = next.elements.map((element) => element.id === FIXED_PLANNING_ID
+    ? { ...element, data: planningData(next.assumptions) }
+    : element);
+  return normalizeCanvas(next);
 }
 
 // ─── Field definitions para cada elemento ────────────────────────────────────
 
 const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type?: string; suffix?: string }[]>> = {
-  process:              [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'setup', label: 'Setup', suffix: 'min' },{ key: 'lote', label: 'Lote', suffix: 'un' },{ key: 'op', label: 'Operadores', suffix: 'pess.' },{ key: 'recurso', label: 'Recursos paralelos', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' }],
-  'shared-process':     [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'setup', label: 'Setup', suffix: 'min' },{ key: 'lote', label: 'Lote', suffix: 'un' },{ key: 'op', label: 'Operadores', suffix: 'pess.' },{ key: 'recurso', label: 'Recursos paralelos', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' }],
+  process:              [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'setup', label: 'Setup / troca', suffix: 'min' },{ key: 'lote', label: 'Lote', suffix: 'un' },{ key: 'op', label: 'Operadores', suffix: 'pess.' },{ key: 'recurso', label: 'Recursos paralelos', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade / OEE', suffix: '%' },{ key: 'qualidade', label: 'Qualidade na saída', suffix: '%' }],
+  'shared-process':     [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'setup', label: 'Setup / troca', suffix: 'min' },{ key: 'lote', label: 'Lote', suffix: 'un' },{ key: 'op', label: 'Operadores', suffix: 'pess.' },{ key: 'recurso', label: 'Recursos paralelos', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade / OEE', suffix: '%' },{ key: 'qualidade', label: 'Qualidade na saída', suffix: '%' }],
   machine:              [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'recurso', label: 'Quantidade', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' }],
   inspection:           [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'op', label: 'Operadores', suffix: 'pess.' }],
   'work-cell':          [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'op', label: 'Operadores', suffix: 'pess.' }],
@@ -368,6 +441,8 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
   buffer:               [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   supermarket:          [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   fifo:                 [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
+  'waiting-time':       [{ key: 'label', label: 'Tipo de espera', type: 'text' },{ key: 'durationMin', label: 'Duração', suffix: 'min' }],
+  'resource-zone':      [{ key: 'label', label: 'Título da área', type: 'text' }],
   'kanban-production':  [{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   'kanban-withdrawal':  [{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   'kanban-board':       [{ key: 'label', label: 'Título', type: 'text' },{ key: 'cols', label: 'Colunas' },{ key: 'rows', label: 'Linhas' }],
@@ -386,6 +461,8 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
   distance:             [{ key: 'distance', label: 'Distância', suffix: 'm' }],
   'quality-problem':    [{ key: 'label', label: 'Descrição', type: 'text' },{ key: 'qty', label: 'Ocorrências', suffix: 'un' }],
   bottleneck:           [{ key: 'label', label: 'Descrição', type: 'text' }],
+  pacemaker:            [{ key: 'label', label: 'Processo marcapasso', type: 'text' }],
+  'future-principles':  [{ key: 'label', label: 'Princípios (uma linha por item)', type: 'textarea' }],
   'signal-kanban':      [{ key: 'qty', label: 'Quantidade de cartões', suffix: 'un' }],
   'kanban-post':        [{ key: 'label', label: 'Título', type: 'text' },{ key: 'qty', label: 'Quantidade de cartões', suffix: 'un' }],
   'sequenced-pull':     [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'pitch', label: 'Pitch', suffix: 'min' }],
@@ -400,6 +477,7 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
 // ─── Render de elemento ───────────────────────────────────────────────────────
 
 function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void, simulation: ReturnType<typeof calculateCanvasSimulation>, availableMinutesPerDay: number, accentColor = DEFAULT_THEME_COLOR) {
+  const processMetric = simulation.processMetrics.find((metric) => metric.element.id === el.id);
   const p = {
     el,
     selected,
@@ -410,6 +488,8 @@ function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void,
     leadTimeDays: simulation.leadTimeDays,
     processingTimeMin: simulation.processingTimeMin,
     accentColor,
+    processLoadPercent: processMetric?.loadPercent,
+    processCapacityPerDay: processMetric?.capacityPerDay,
   };
   switch (el.kind) {
     case 'process':             return <ProcessSymbol {...p} />;
@@ -492,6 +572,9 @@ function LibraryThumb({ kind, accentColor }: { kind: ElementKind; accentColor: s
       {kind==='arrow-info-manual' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#333" strokeWidth={2}/><polygon points="34,12 42,18 34,22" fill="#333"/></g>)}
       {kind==='arrow-info-electronic' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke={accentColor} strokeWidth={2} strokeDasharray="4 3"/><polygon points="19,10 16,19 20,19 17,28 25,17 21,17" fill={accentColor}/><polygon points="34,12 42,18 34,22" fill={accentColor}/></g>)}
       {kind==='arrow-adjustment' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#cc4400" strokeWidth={2} strokeDasharray="2 2"/><polygon points="34,12 42,18 34,22" fill="#cc4400"/><circle cx={4} cy={36} r={3} fill="#cc4400"/></g>)}
+      {kind==='arrow-schedule' && (<g><path d="M3,36 Q22,1 40,18" fill="none" stroke="#333" strokeWidth={2}/><polygon points="34,13 42,19 34,23" fill="#333"/></g>)}
+      {kind==='arrow-shipment' && (<g><path d="M3,22 H39" fill="none" stroke="#333" strokeWidth={2} strokeDasharray="7 4"/><polygon points="34,17 42,22 34,27" fill="#333"/></g>)}
+      {kind==='arrow-physical' && (<path d="M3,16 H30 L30,11 L41,22 L30,33 L30,28 H3 Z" fill="white" stroke={accentColor} strokeWidth={2}/>)}
       <g transform="scale(.3)"><ExtendedSymbol el={{ id:'thumb', kind, x:0, y:0, label:'', data:{} }} selected={false} onEdit={() => undefined} /></g>
     </svg>
   );
@@ -551,9 +634,12 @@ function ArrowShape({ arrow, selected, onClick, accentColor }: {
   const isElec = arrow.kind === 'arrow-info-electronic';
   const isPull = arrow.kind === 'arrow-pull';
   const isPush = arrow.kind === 'arrow-push';
+  const isSchedule = arrow.kind === 'arrow-schedule';
+  const isShipment = arrow.kind === 'arrow-shipment';
+  const isPhysical = arrow.kind === 'arrow-physical';
 
-  const color = (isPush||isPull||isElec) ? accentColor : isAdj ? '#cc4400' : '#333';
-  const dash = (isElec||isAdj) ? (isAdj?'3 3':'5 3') : 'none';
+  const color = (isPush||isPull||isElec||isPhysical) ? accentColor : isAdj ? '#cc4400' : '#333';
+  const dash = (isElec||isAdj||isShipment) ? (isAdj?'3 3':isShipment?'9 6':'5 3') : 'none';
   const sw = selected ? 3 : 2;
   const id = arrow.id;
 
@@ -565,7 +651,10 @@ function ArrowShape({ arrow, selected, onClick, accentColor }: {
           <polygon points="0,0 9,3.5 0,7" fill={color} />
         </marker>
       </defs>
-      {isPush ? (
+      {isPhysical ? (
+        <path d={`M${arrow.x1},${arrow.y1-8} L${ex-16},${ey-8} L${ex},${ey} L${ex-16},${ey+8} L${arrow.x1},${arrow.y1+8} Z`}
+          fill="white" stroke={color} strokeWidth={sw} />
+      ) : isPush ? (
         <line x1={arrow.x1} y1={arrow.y1} x2={ex} y2={ey} stroke={color} strokeWidth={sw+3} markerEnd={`url(#m-${id})`} />
       ) : isPull ? (
         <>
@@ -573,6 +662,9 @@ function ArrowShape({ arrow, selected, onClick, accentColor }: {
             fill="none" stroke={color} strokeWidth={sw} markerEnd={`url(#m-${id})`} />
           <circle cx={arrow.x1} cy={arrow.y1} r={4} fill={color} />
         </>
+      ) : isSchedule ? (
+        <path d={`M${arrow.x1},${arrow.y1} Q${mx},${Math.min(arrow.y1, arrow.y2)-90} ${ex},${ey}`}
+          fill="none" stroke={color} strokeWidth={sw} markerEnd={`url(#m-${id})`} />
       ) : (
         <>
           <path d={`M${arrow.x1},${arrow.y1} Q${mx},${my-30} ${ex},${ey}`}
@@ -628,7 +720,9 @@ function ElementPopover({ el, onUpdate, onDelete, onClose }: {
         {fields.map((f) => (
           <div key={f.key} className="popover-field" style={{ marginTop: 8 }}>
             <label>{f.label}</label>
-            {f.type === 'text' ? (
+            {f.type === 'textarea' ? (
+              <textarea value={el.label} rows={6} onChange={(e) => onUpdate({ label: e.target.value })} />
+            ) : f.type === 'text' ? (
               <input value={el.label} onChange={(e) => onUpdate({ label: e.target.value })} />
             ) : f.type === 'color' ? (
               <div className="popover-color-wrap">
@@ -860,6 +954,9 @@ function ArrowPopover({ arrow, onUpdate, onDelete, onClose }: {
     { value: 'arrow-info-manual',     label: 'Info manual' },
     { value: 'arrow-info-electronic', label: 'Info eletrônica' },
     { value: 'arrow-adjustment',      label: 'Seta de ajuste / correção' },
+    { value: 'arrow-schedule',        label: 'Programação curva' },
+    { value: 'arrow-shipment',        label: 'Transporte externo' },
+    { value: 'arrow-physical',        label: 'Fluxo físico (chevron)' },
   ];
   return createPortal(
     <div className="process-popover" ref={ref} style={{ width: 280 }}>
@@ -940,14 +1037,80 @@ function snapElementPosition(target: CanvasElement, x: number, y: number, elemen
   return { x: snappedX, y: snappedY, guides: { x: guideX, y: guideY } as AlignmentGuides };
 }
 
+const SCENARIO_PRESETS: { id: ScenarioPreset; title: string; description: string }[] = [
+  { id: 'current', title: 'Cópia do Estado atual', description: 'Base neutra para editar livremente.' },
+  { id: 'demand-up', title: 'Demanda +20%', description: 'Testa crescimento e revela sobrecargas.' },
+  { id: 'demand-down', title: 'Demanda −20%', description: 'Avalia ociosidade e consolidação.' },
+  { id: 'bottleneck-resource', title: '+1 recurso no gargalo', description: 'Duplica a capacidade paralela da restrição atual.' },
+  { id: 'setup-half', title: 'Setup −50%', description: 'Simula melhoria de troca e lotes menores.' },
+  { id: 'availability-up', title: 'Disponibilidade +10 p.p.', description: 'Testa estabilidade e manutenção.' },
+  { id: 'quality-up', title: 'Qualidade +5 p.p.', description: 'Reduz perdas acumuladas ao longo do fluxo.' },
+];
+
+function ScenarioCreateModal({ onCreate, onClose }: { onCreate: (name: string, preset: ScenarioPreset) => void; onClose: () => void }) {
+  const [name, setName] = useState('');
+  const [preset, setPreset] = useState<ScenarioPreset>('current');
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+  return createPortal(
+    <div className="editor-overlay" role="dialog" aria-modal="true" aria-labelledby="scenario-create-title">
+      <button className="editor-backdrop" onClick={onClose} aria-label="Fechar criação de cenário" />
+      <section className="editor-window scenario-create-modal">
+        <header><div><h2 id="scenario-create-title">Novo cenário futuro</h2><p>Comece sempre do Estado atual e aplique uma hipótese inicial.</p></div><button className="icon-button" onClick={onClose}><X size={20}/></button></header>
+        <div className="scenario-create-body">
+          <label className="scenario-name-field"><span>Nome do cenário</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Demanda alta — 2º semestre" /></label>
+          <div className="scenario-preset-grid">
+            {SCENARIO_PRESETS.map((item) => <button key={item.id} className={preset === item.id ? 'active' : ''} onClick={() => setPreset(item.id)}>
+              <strong>{item.title}</strong><span>{item.description}</span>
+            </button>)}
+          </div>
+        </div>
+        <footer className="scenario-modal-footer"><button className="quiet-button" onClick={onClose}>Cancelar</button><button className="primary-button" onClick={() => onCreate(name, preset)}>Criar cenário</button></footer>
+      </section>
+    </div>, document.body,
+  );
+}
+
+function ComparisonModal({ workspace, onSelect, onClose }: { workspace: CanvasWorkspace; onSelect: (id: string) => void; onClose: () => void }) {
+  const rows = [
+    { id: '', name: 'Estado atual', kind: 'current' as const, canvas: workspace.current },
+    ...workspace.futures.map((variant) => ({ id: variant.id, name: variant.name, kind: 'future' as const, canvas: variant.canvas })),
+  ].map((row) => ({ ...row, result: calculateCanvasSimulation(row.canvas) }));
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+  const number = (value: number, digits = 1) => Number.isFinite(value) ? value.toLocaleString('pt-BR', { maximumFractionDigits: digits }) : '—';
+  return createPortal(
+    <div className="editor-overlay" role="dialog" aria-modal="true" aria-labelledby="comparison-title">
+      <button className="editor-backdrop" onClick={onClose} aria-label="Fechar comparação" />
+      <section className="editor-window comparison-modal">
+        <header><div><h2 id="comparison-title">Comparação de cenários</h2><p>Veja onde cada hipótese atende a demanda e qual processo limita o fluxo.</p></div><button className="icon-button" onClick={onClose}><X size={20}/></button></header>
+        <div className="comparison-table-wrap"><table className="comparison-table"><thead><tr><th>Cenário</th><th>Demanda/dia</th><th>Capacidade/dia</th><th>TAKT</th><th>Lead time</th><th>Gargalo</th><th>Situação</th></tr></thead><tbody>
+          {rows.map((row) => <tr key={row.id || 'current'} className={row.id === workspace.activeFutureId ? 'active' : ''}>
+            <td><span className={`scenario-dot ${row.kind}`}/><strong>{row.name}</strong>{row.id && <button onClick={() => { onSelect(row.id); onClose(); }}>Abrir</button>}</td>
+            <td>{number(row.result.dailyDemand, 2)} un</td><td>{number(row.result.bottleneckCapacity)} un</td><td>{number(row.result.taktTimeSec / 60, 2)} min</td><td>{number(row.result.leadTimeDays, 2)} dias</td><td>{row.result.bottleneck?.label || '—'}</td>
+            <td><span className={`comparison-status ${row.result.invalidProcesses.length ? 'warning' : row.result.overloadedProcesses.length ? 'critical' : 'ok'}`}>{row.result.invalidProcesses.length ? 'Dados incompletos' : row.result.overloadedProcesses.length ? `${row.result.overloadedProcesses.length} quebra(m)` : 'Atende'}</span></td>
+          </tr>)}
+        </tbody></table></div>
+      </section>
+    </div>, document.body,
+  );
+}
+
 function ScenarioPill({ kind }: { kind: ActiveKind }) {
   return <span className={`scenario-pill ${kind}`}>{kind==='current'?'Estado atual':'Estado futuro'}</span>;
 }
 
 export default function App() {
   const [activeKind, setActiveKind] = useState<ActiveKind>('current');
-  const [canvases, setCanvases] = useState<Record<ActiveKind,CanvasState>>(loadCanvases);
-  const canvas = canvases[activeKind];
+  const [workspace, setWorkspace] = useState<CanvasWorkspace>(loadWorkspace);
+  const activeFuture = workspace.futures.find((variant) => variant.id === workspace.activeFutureId) ?? workspace.futures[0];
+  const canvas = activeKind === 'current' ? workspace.current : activeFuture.canvas;
   const simulation = calculateCanvasSimulation(canvas);
   const timelineSourceElements = [...simulation.processElements, ...simulation.inventoryElements];
   const automaticTimelinePosition = timelineSourceElements.length
@@ -958,11 +1121,23 @@ export default function App() {
     : null;
 
   const setCanvas = useCallback((next: CanvasState | ((p: CanvasState) => CanvasState)) => {
-    setCanvases((prev) => {
-      const updated = normalizeCanvas(typeof next === 'function' ? next(prev[activeKind]) : next);
-      const result = activeKind === 'current'
-        ? { current: updated, future: syncCurrentIntoFuture(prev.current, updated, prev.future) }
-        : { ...prev, future: updated };
+    setWorkspace((previous) => {
+      const selectedFuture = previous.futures.find((variant) => variant.id === previous.activeFutureId) ?? previous.futures[0];
+      const activeCanvas = activeKind === 'current' ? previous.current : selectedFuture.canvas;
+      const updated = normalizeCanvas(typeof next === 'function' ? next(activeCanvas) : next);
+      const result: CanvasWorkspace = activeKind === 'current'
+        ? {
+            ...previous,
+            current: updated,
+            futures: previous.futures.map((variant) => ({
+              ...variant,
+              canvas: syncCurrentIntoFuture(previous.current, updated, variant.canvas),
+            })),
+          }
+        : {
+            ...previous,
+            futures: previous.futures.map((variant) => variant.id === previous.activeFutureId ? { ...variant, canvas: updated } : variant),
+          };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
       return result;
     });
@@ -979,6 +1154,8 @@ export default function App() {
   const [saved, setSaved] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [demandOpen, setDemandOpen] = useState(false);
+  const [scenarioCreateOpen, setScenarioCreateOpen] = useState(false);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragMovedRef = useRef(false);
 
@@ -986,7 +1163,7 @@ export default function App() {
     setSelectedId(null);
     setEditingEl(null);
     setEditingArrow(null);
-  }, [activeKind]);
+  }, [activeKind, workspace.activeFutureId]);
 
   const openElementEditor = (element: CanvasElement) => {
     if (element.id === FIXED_PLANNING_ID) {
@@ -1000,7 +1177,7 @@ export default function App() {
     setSaved(false);
     const t = setTimeout(() => setSaved(true), 500);
     return () => clearTimeout(t);
-  }, [canvases]);
+  }, [workspace]);
 
   const toCanvas = useCallback((cx: number, cy: number) => ({
     x: (cx - pan.x) / zoom, y: (cy - pan.y) / zoom,
@@ -1020,7 +1197,7 @@ export default function App() {
     const lib = LIBRARY.find((l) => l.kind === kind)!;
     if (ARROW_KINDS.includes(kind)) {
       const k = kind as CanvasArrow['kind'];
-      const a: CanvasArrow = { id: makeId(), kind: k, x1: x, y1: y, x2: x+120, y2: y };
+      const a: CanvasArrow = { id: makeId(), kind: k, x1: x, y1: y, x2: x+120, y2: y, label: lib.defaultLabel || undefined };
       setCanvas((p) => ({ ...p, arrows: [...p.arrows, a] }));
       setSelectedId(a.id);
     } else {
@@ -1169,6 +1346,66 @@ export default function App() {
     setSelectedId(null);
   };
 
+  const selectFuture = (id: string) => {
+    setWorkspace((previous) => {
+      if (!previous.futures.some((variant) => variant.id === id)) return previous;
+      const next = { ...previous, activeFutureId: id };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+    setActiveKind('future');
+  };
+
+  const createScenario = (name: string, preset: ScenarioPreset) => {
+    setWorkspace((previous) => {
+      const variant: FutureVariant = {
+        id: `future-${makeId()}`,
+        name: name.trim() || `Cenário ${previous.futures.length + 1}`,
+        canvas: canvasForPreset(previous.current, preset),
+      };
+      const next = { ...previous, futures: [...previous.futures, variant], activeFutureId: variant.id };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+    setActiveKind('future');
+    setScenarioCreateOpen(false);
+  };
+
+  const duplicateScenario = () => {
+    setWorkspace((previous) => {
+      const source = previous.futures.find((variant) => variant.id === previous.activeFutureId) ?? previous.futures[0];
+      const variant = { id: `future-${makeId()}`, name: `${source.name} — cópia`, canvas: cloneCanvas(source.canvas) };
+      const next = { ...previous, futures: [...previous.futures, variant], activeFutureId: variant.id };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+    setActiveKind('future');
+  };
+
+  const renameScenario = () => {
+    const name = window.prompt('Nome do cenário:', activeFuture.name)?.trim();
+    if (!name) return;
+    setWorkspace((previous) => {
+      const next = { ...previous, futures: previous.futures.map((variant) => variant.id === previous.activeFutureId ? { ...variant, name } : variant) };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const deleteScenario = () => {
+    if (workspace.futures.length === 1) {
+      window.alert('Mantenha pelo menos um cenário futuro. Você pode limpar ou renomear o cenário atual.');
+      return;
+    }
+    if (!window.confirm(`Excluir o cenário “${activeFuture.name}”?`)) return;
+    setWorkspace((previous) => {
+      const futures = previous.futures.filter((variant) => variant.id !== previous.activeFutureId);
+      const next = { ...previous, futures, activeFutureId: futures[0].id };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       {/* Sidebar */}
@@ -1187,7 +1424,7 @@ export default function App() {
             <Map size={18} /><span>Estado atual</span>
           </button>
           <button className={activeKind==='future'?'active future':''} onClick={() => setActiveKind('future')} title="Estado futuro">
-            <GitCompareArrows size={18} /><span>Estado futuro</span>
+            <GitCompareArrows size={18} /><span>Estado futuro <small>{workspace.futures.length}</small></span>
           </button>
           <button className="demand-nav-button" onClick={() => setDemandOpen(true)} title="Dados de demanda e TAKT">
             <Calculator size={18} /><span>Demanda e TAKT</span>
@@ -1211,7 +1448,7 @@ export default function App() {
         <header className="app-header">
           <div>
             <ScenarioPill kind={activeKind} />
-            <h1>{activeKind==='current'?'Estado atual':'Estado futuro'}</h1>
+            <h1>{activeKind==='current'?'Estado atual':activeFuture.name}</h1>
             <p>{activeKind === 'current'
               ? <>Tudo que for criado aqui avança automaticamente para o Estado futuro.</>
               : <>Simule demanda, cargas e tempos sem alterar o Estado atual.</>}
@@ -1231,9 +1468,9 @@ export default function App() {
                     : simulation.processElements.length ? 'Processos atendem' : 'Adicione processos'}</span>
               </div>
             </div>
-            {activeKind === 'future' && <div className="future-sync-status" title="O Estado futuro recebe automaticamente a estrutura do Estado atual. Alterações feitas aqui não retornam.">
-              <CheckCircle2 size={15}/><span>Base sincronizada</span>
-            </div>}
+            {activeKind === 'future' && <button className="future-sync-status" onClick={() => setComparisonOpen(true)} title="Comparar todos os cenários com o Estado atual">
+              <BarChart3 size={15}/><span>Comparar</span>
+            </button>}
             <label className="theme-color-button" title="Personalizar a cor de todo o MFV">
               <Palette size={16}/><span>Cor do MFV</span>
               <input type="color" value={canvas.themeColor} onChange={(event) => applyThemeColor(event.target.value)} aria-label="Cor do MFV" />
@@ -1250,6 +1487,22 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        {activeKind === 'future' && <div className="scenario-toolbar no-print">
+          <div className="scenario-selector">
+            <span>Cenário de simulação</span>
+            <select value={workspace.activeFutureId} onChange={(event) => selectFuture(event.target.value)}>
+              {workspace.futures.map((variant) => <option key={variant.id} value={variant.id}>{variant.name}</option>)}
+            </select>
+            <span className="future-sync-note"><CheckCircle2 size={13}/> recebe alterações do Estado atual</span>
+          </div>
+          <div className="scenario-actions">
+            <button onClick={() => setScenarioCreateOpen(true)}><Plus size={15}/>Novo cenário</button>
+            <button onClick={duplicateScenario} title="Duplicar cenário"><Copy size={15}/><span>Duplicar</span></button>
+            <button onClick={renameScenario} title="Renomear cenário"><Pencil size={15}/><span>Renomear</span></button>
+            <button className="danger" onClick={deleteScenario} title="Excluir cenário"><Trash2 size={15}/><span>Excluir</span></button>
+          </div>
+        </div>}
 
         {canvas.elements.every((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)) && canvas.arrows.length===0 && (
           <div className="canvas-empty-hint">
@@ -1347,8 +1600,10 @@ export default function App() {
           onDelete={() => deleteArrow(editingArrow.id)}
           onClose={() => setEditingArrow(null)} />
       )}
-      {exportOpen && <ExportModal svgRef={svgRef} name={activeKind==='current'?'Estado_Atual':'Estado_Futuro'} onClose={() => setExportOpen(false)} />}
+      {exportOpen && <ExportModal svgRef={svgRef} name={activeKind==='current'?'Estado_Atual':`Estado_Futuro_${activeFuture.name.replace(/[^a-z0-9]+/gi,'_')}`} onClose={() => setExportOpen(false)} />}
       {demandOpen && <DemandModal assumptions={canvas.assumptions} onSave={saveAssumptions} onClose={() => setDemandOpen(false)} />}
+      {scenarioCreateOpen && <ScenarioCreateModal onCreate={createScenario} onClose={() => setScenarioCreateOpen(false)} />}
+      {comparisonOpen && <ComparisonModal workspace={workspace} onSelect={selectFuture} onClose={() => setComparisonOpen(false)} />}
     </div>
   );
 }
@@ -1398,6 +1653,7 @@ function ExportModal({ svgRef, name, onClose }: { svgRef: React.RefObject<SVGSVG
           </div>
           <button className="icon-button" onClick={onClose}><X size={20}/></button>
         </header>
+
         <div className="paper-size-picker">
           <span>Tamanho da folha</span>
           <div>

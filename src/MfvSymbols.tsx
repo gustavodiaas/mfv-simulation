@@ -11,6 +11,8 @@ interface SymProps {
   leadTimeDays?: number;
   processingTimeMin?: number;
   accentColor?: string;
+  processLoadPercent?: number;
+  processCapacityPerDay?: number;
   timelineSteps?: {
     inventoryDays: number;
     processTimeMin: number;
@@ -58,7 +60,7 @@ function SelectionRect({ w, h }: { w: number; h: number }) {
 }
 
 // ── Processo ─────────────────────────────────────────────────────────────────
-export function ProcessSymbol({ el, selected, onEdit, taktTimeSec = 0, availableMinutesPerDay = 0, accentColor }: SymProps) {
+export function ProcessSymbol({ el, selected, onEdit, taktTimeSec = 0, availableMinutesPerDay = 0, accentColor, processLoadPercent, processCapacityPerDay }: SymProps) {
   const w = 150; const h = 160;
   const colors = theme(accentColor);
   const cycleTime = Math.max(0, Number(el.data.tc) || 0);
@@ -66,16 +68,18 @@ export function ProcessSymbol({ el, selected, onEdit, taktTimeSec = 0, available
   const availability = Math.min(100, Math.max(1, Number(el.data.disp) || 100)) / 100;
   const resources = Math.max(1, Number(el.data.recurso) || 1);
   const effectiveCycle = (cycleTime + setupPerUnit) / (resources * availability);
-  const loadPercent = taktTimeSec > 0 ? (effectiveCycle / taktTimeSec) * 100 : 0;
+  const localLoadPercent = taktTimeSec > 0 ? (effectiveCycle / taktTimeSec) * 100 : 0;
+  const loadPercent = processLoadPercent ?? localLoadPercent;
   const valid = cycleTime > 0;
   const overloaded = valid && loadPercent > 100;
-  const capacityPerDay = effectiveCycle > 0 ? (availableMinutesPerDay * 60) / effectiveCycle : 0;
+  const capacityPerDay = processCapacityPerDay ?? (effectiveCycle > 0 ? (availableMinutesPerDay * 60) / effectiveCycle : 0);
   const rows = [
     { k: 'Nº operador', v: `${el.data.op ?? 1}` },
     { k: 'T/C', v: `${el.data.tc ?? 0} s` },
     { k: 'Setup', v: `${el.data.setup ?? 0} min` },
     { k: 'Recurso', v: `${el.data.recurso ?? 1}` },
     { k: 'Disponib.', v: `${el.data.disp ?? 100}%` },
+    { k: 'Qualidade', v: `${el.data.qualidade ?? 100}%` },
     { k: 'Capacidade', v: effectiveCycle > 0 ? `${capacityPerDay.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/dia` : '—' },
   ];
   const label = el.label || 'Processo';
@@ -96,9 +100,9 @@ export function ProcessSymbol({ el, selected, onEdit, taktTimeSec = 0, available
       {label.split('\n')[1] && <text x={w/2} y={28} textAnchor="middle" fontSize={8} fontFamily="Arial" fill="#1a2a1a">{label.split('\n')[1]}</text>}
       {rows.map((r, i) => (
         <g key={r.k}>
-          {i > 0 && <line x1={0} y1={38 + i * 20} x2={w} y2={38 + i * 20} stroke="#dde0e9" strokeWidth={0.8} />}
-          <text x={6} y={38 + 14 + i * 20} fontSize={6.5} fontFamily="Arial" fill="#50575f" fontWeight="700">{r.k}</text>
-          <text x={w-6} y={38 + 14 + i * 20} fontSize={7} fontFamily="Arial" fill="#1d2128" fontWeight="700" textAnchor="end">{r.v}</text>
+          {i > 0 && <line x1={0} y1={38 + i * 17} x2={w} y2={38 + i * 17} stroke="#dde0e9" strokeWidth={0.8} />}
+          <text x={6} y={38 + 12 + i * 17} fontSize={6.5} fontFamily="Arial" fill="#50575f" fontWeight="700">{r.k}</text>
+          <text x={w-6} y={38 + 12 + i * 17} fontSize={7} fontFamily="Arial" fill="#1d2128" fontWeight="700" textAnchor="end">{r.v}</text>
         </g>
       ))}
       <EditBtn onEdit={onEdit} x={w - 2} y={2} />
@@ -720,6 +724,26 @@ export function ExtendedSymbol(props: SymProps) {
       <text x={w/2} y={h/2-2} textAnchor="middle" fontSize={18} fontWeight="800" fontFamily="Arial" fill={colors.darker}>Q</text>{label(w/2,h/2+15)}{edit(w-2)}</g>;
   }
 
+  if (el.kind === 'waiting-time') {
+    const w=130,h=76;
+    const minutes = Math.max(0, Number(el.data.durationMin) || 0);
+    const duration = minutes >= 60
+      ? `${(minutes / 60).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} h`
+      : `${minutes.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min`;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect width={w} height={h} rx={8} fill="white" stroke={stroke} strokeWidth={strokeWidth} strokeDasharray="5 3"/>
+      <circle cx={24} cy={28} r={13} fill={colors.light} stroke={colors.dark}/><path d="M24,20 V29 L31,33" fill="none" stroke={colors.darker} strokeWidth={2} strokeLinecap="round"/>
+      <text x={78} y={24} textAnchor="middle" fontSize={8} fontWeight="800" fontFamily="Arial" fill={colors.darker}>{(el.label || 'Espera').slice(0,22)}</text>
+      <text x={78} y={42} textAnchor="middle" fontSize={13} fontWeight="800" fontFamily="Arial" fill={colors.accent}>{duration}</text>
+      <text x={w/2} y={64} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#667085">tempo sem agregação de valor</text>{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'resource-zone') {
+    const w=340,h=180;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={2} y={12} width={w-4} height={h-14} rx={10} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeDasharray="8 5"/>
+      <rect x={16} y={2} width={Math.min(w-32, Math.max(150, (el.label || '').length * 5.7))} height={22} rx={11} fill="white" stroke={colors.dark}/>
+      <text x={24} y={17} fontSize={7.5} fontWeight="800" fontFamily="Arial" fill={colors.darker}>{(el.label || 'RECURSOS DA CÉLULA / MANUTENÇÃO').slice(0,48)}</text>{edit(w-2,14)}</g>;
+  }
+
   if (el.kind === 'safety-stock') {
     const w=76,h=64;
     return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points="22,7 40,40 4,40" fill={colors.light} stroke={stroke} strokeWidth={strokeWidth}/><polygon points="54,7 72,40 36,40" fill={colors.mid} stroke={stroke} strokeWidth={strokeWidth}/>
@@ -766,6 +790,24 @@ export function ExtendedSymbol(props: SymProps) {
   if (el.kind === 'bottleneck') {
     const w=92,h=66;
     return <g>{selected && <SelectionRect w={w} h={h}/>}<path d="M20,7 H72 L62,25 V41 L72,59 H20 L30,41 V25 Z" fill="#ffe2df" stroke="#d43d32" strokeWidth={strokeWidth}/><text x={46} y={37} textAnchor="middle" fontSize={9} fontWeight="900" fontFamily="Arial" fill="#a2221a">GARGALO</text>{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'pacemaker') {
+    const w=118,h=62;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={2} y={7} width={w-4} height={h-14} rx={24} fill={colors.pale} stroke={stroke} strokeWidth={strokeWidth}/>
+      <path d="M18,31 H35 M26.5,22 V40" stroke={colors.accent} strokeWidth={2.4} strokeLinecap="round"/>
+      <circle cx={26.5} cy={31} r={13} fill="none" stroke={colors.accent} strokeWidth={1.5}/>
+      <text x={75} y={28} textAnchor="middle" fontSize={8} fontWeight="900" fontFamily="Arial" fill={colors.darker}>MARCAPASSO</text>
+      <text x={75} y={40} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill={colors.dark}>{(el.label || 'Processo').slice(0,18)}</text>{edit(w-2)}</g>;
+  }
+
+  if (el.kind === 'future-principles') {
+    const w=190,h=150;
+    const points = Array.from({length:24},(_,index)=>{const angle=(index/24)*Math.PI*2-Math.PI/2;const radius=index%2===0?72:59;return `${w/2+radius*Math.cos(angle)},${h/2+radius*Math.sin(angle)}`;}).join(' ');
+    const lines = (el.label || '').split('\n').filter(Boolean).slice(0,6);
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points={points} fill="#fffbe8" stroke={sel(selected,'#e2b900')} strokeWidth={strokeWidth}/>
+      <text x={w/2} y={42} textAnchor="middle" fontSize={8} fontWeight="900" fontFamily="Arial" fill="#6a5200">ESTADO FUTURO</text>
+      {lines.map((line,index)=><text key={index} x={w/2} y={58+index*13} textAnchor="middle" fontSize={7.5} fontWeight="700" fontFamily="Arial" fill="#34383e">{line.slice(0,30)}</text>)}{edit(w-10,8)}</g>;
   }
 
   if (el.kind === 'distance') {

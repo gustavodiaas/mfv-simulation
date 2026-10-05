@@ -4,10 +4,12 @@ Aplicação web para criar, comparar e imprimir cenários de Mapeamento de Fluxo
 
 ## Recursos
 
-- Estado atual e estado futuro independentes
-- Cadastro de processos, tempos, setup, lote, operadores, disponibilidade e estoques
-- Cálculo de takt time, capacidade, lead time e balanceamento
-- Comparação entre cenários
+- Estado atual como base sincronizada para vários cenários futuros, sem retorno das alterações
+- Cadastro de processos, tempos, setup, lote, operadores, disponibilidade, qualidade, estoques e esperas
+- Cálculo de takt time, capacidade efetiva, gargalo, perdas acumuladas e lead time
+- Cenários rápidos de demanda, setup, disponibilidade, qualidade e recurso no gargalo
+- Comparação lado a lado entre o estado atual e todos os cenários futuros
+- Biblioteca de símbolos e fluxos inspirada no padrão visual das planilhas MFV
 - Salvamento local no navegador
 - Relatório preparado para impressão ou PDF
 
