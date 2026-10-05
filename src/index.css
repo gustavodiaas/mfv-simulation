@@ -205,6 +205,42 @@ button, input, select { font: inherit; cursor: pointer; }
   border: 1px solid #bfe6cf; border-radius: 9px; font-size: 10px; font-weight: 650;
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
 }
+.live-launch-button {
+  height: 36px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px;
+  color: #5b3f00; background: #fff6d8; border: 1px solid #ecd27a; border-radius: 9px;
+  font-size: 10px; font-weight: 700; white-space: nowrap; transition: .15s ease;
+}
+.live-launch-button:hover { background: #ffefb8; border-color: #d8b84d; }
+.live-launch-button.running { color: white; background: #1a6b3a; border-color: #1a6b3a; box-shadow: 0 4px 12px rgba(26,107,58,.2); }
+.live-simulation-bar {
+  position: relative; min-height: 58px; display: flex; align-items: stretch; justify-content: space-between; gap: 18px;
+  padding: 8px 24px 10px; color: #f8fbff; background: linear-gradient(105deg,#101925,#18334c);
+  border-bottom: 1px solid rgba(0,0,0,.2); box-shadow: inset 0 1px rgba(255,255,255,.04);
+}
+.live-playback-controls, .live-metrics { display: flex; align-items: center; gap: 7px; }
+.live-playback-controls > button {
+  width: 32px; height: 32px; display: grid; place-items: center; color: #dfeeff; background: rgba(255,255,255,.1);
+  border: 1px solid rgba(255,255,255,.12); border-radius: 8px;
+}
+.live-playback-controls > button:hover { background: rgba(255,255,255,.18); }
+.live-playback-controls .live-play-button { color: #0b3654; background: #7fd6ff; border-color: #7fd6ff; }
+.live-playback-controls label { display: flex; align-items: center; gap: 7px; margin-left: 5px; }
+.live-playback-controls label > span { color: #91a8ba; font-size: 8px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+.live-playback-controls select { height: 31px; padding: 0 26px 0 9px; color: #e8f3fb; background: #203b52; border: 1px solid #38566e; border-radius: 7px; font-size: 9px; font-weight: 700; }
+.live-metrics { flex: 1; justify-content: flex-end; }
+.live-metrics > div { min-width: 90px; display: grid; gap: 2px; padding: 5px 10px; border-left: 1px solid rgba(255,255,255,.1); }
+.live-metrics span { color: #8fa7ba; font-size: 7.5px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+.live-metrics strong { color: white; font-size: 11px; }
+.live-metrics .attention strong { color: #ffd36a; }
+.live-metrics .critical strong { color: #ff8c82; }
+.live-metrics .healthy strong { color: #7ee2a8; }
+.live-day-progress { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; overflow: hidden; background: rgba(255,255,255,.08); }
+.live-day-progress i { display: block; height: 100%; background: linear-gradient(90deg,#58b9ff,#61e59a); transition: width .12s linear; }
+.live-process-halo { fill: none; stroke-width: 4; opacity: .72; }
+.live-process-halo.healthy { stroke: #28b76c; }
+.live-process-halo.bottleneck { stroke: #f4b83f; stroke-dasharray: 8 4; }
+.live-process-halo.critical { stroke: #ff3b30; filter: drop-shadow(0 0 6px rgba(255,59,48,.55)); }
+.live-product-token { filter: drop-shadow(0 2px 4px rgba(0,0,0,.28)); }
 .sidebar-nav small { display: inline-grid; place-items: center; min-width: 17px; height: 17px; margin-left: 4px; padding: 0 5px; color: currentColor; background: rgba(255,255,255,.18); border-radius: 9px; font-size: 8px; }
 .scenario-toolbar {
   min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
@@ -478,6 +514,9 @@ g:hover > .edit-btn-group { opacity: 1; }
   .simulation-summary > div { flex: 1; }
   .scenario-toolbar { align-items: flex-start; flex-direction: column; }
   .scenario-selector, .scenario-actions { width: 100%; flex-wrap: wrap; }
+  .live-simulation-bar { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .live-metrics { width: 100%; justify-content: stretch; }
+  .live-metrics > div { flex: 1; }
 }
 
 @media (max-width: 800px) {
@@ -494,4 +533,7 @@ g:hover > .edit-btn-group { opacity: 1; }
   .scenario-preset-grid { grid-template-columns: 1fr; }
   .future-sync-note { display: none; }
   .scenario-actions button span { display: none; }
+  .live-launch-button span { display: none; }
+  .live-metrics { overflow-x: auto; justify-content: flex-start; }
+  .live-metrics > div { min-width: 92px; }
 }

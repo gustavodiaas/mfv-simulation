@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AlertTriangle, BarChart3, BookOpen, Calculator, CheckCircle2, Copy, Download, FileImage, FileText, GitCompareArrows,
+  Activity, AlertTriangle, BarChart3, BookOpen, Calculator, CheckCircle2, Copy, Download, FileImage, FileText, GitCompareArrows,
   ImageDown, LayoutTemplate, Loader2, Map, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Plus,
-  RotateCcw, Route, Save, Trash2, X, ZoomIn, ZoomOut, Minus,
+  Pause, Play, RotateCcw, Route, Save, Square, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
 import {
   ARROW_KINDS, DEFAULT_TRUCK_COLOR, LIBRARY, makeId,
@@ -706,6 +706,93 @@ function ArrowShape({ arrow, selected, onClick, accentColor }: {
   );
 }
 
+function pointAlongRoute(points: { x: number; y: number }[], progress: number) {
+  if (points.length === 0) return { x: 0, y: 0 };
+  if (points.length === 1) return points[0];
+  const segments = points.slice(1).map((point, index) => {
+    const previous = points[index];
+    return { from: previous, to: point, length: Math.hypot(point.x - previous.x, point.y - previous.y) };
+  });
+  const total = segments.reduce((sum, segment) => sum + segment.length, 0) || 1;
+  let remaining = Math.min(1, Math.max(0, progress)) * total;
+  for (const segment of segments) {
+    if (remaining <= segment.length) {
+      const ratio = segment.length > 0 ? remaining / segment.length : 0;
+      return {
+        x: segment.from.x + (segment.to.x - segment.from.x) * ratio,
+        y: segment.from.y + (segment.to.y - segment.from.y) * ratio,
+      };
+    }
+    remaining -= segment.length;
+  }
+  return points[points.length - 1];
+}
+
+function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
+  canvas: CanvasState;
+  simulation: ReturnType<typeof calculateCanvasSimulation>;
+  elapsedSec: number;
+}) {
+  if (elapsedSec <= 0 || simulation.processElements.length === 0 || !Number.isFinite(simulation.taktTimeSec)) return null;
+  const stageElements = canvas.elements
+    .filter((element) => ['process','shared-process','waiting-time'].includes(element.kind))
+    .sort((a, b) => a.x - b.x);
+  if (!stageElements.length) return null;
+  const centers = stageElements.map((element) => {
+    const size = elementDimensions(element);
+    return { x: element.x + size.width / 2, y: element.y + size.height / 2 };
+  });
+  const route = [
+    { x: centers[0].x - 90, y: centers[0].y },
+    ...centers,
+    { x: centers[centers.length - 1].x + 90, y: centers[centers.length - 1].y },
+  ];
+  const availableSeconds = canvas.assumptions.availableMinutesPerDay * 60;
+  const completionInterval = simulation.bottleneckCapacity > 0 ? availableSeconds / simulation.bottleneckCapacity : Infinity;
+  const nominalLeadSec = Math.max(20,
+    simulation.processMetrics.reduce((sum, metric) => sum + metric.effectiveCycleSec, 0)
+      + simulation.waitingTimeMin * 60
+      + route.length * 15,
+  );
+  const launched = Math.max(0, Math.floor(elapsedSec / simulation.taktTimeSec) + 1);
+  const firstVisible = Math.max(0, launched - 18);
+  const tokens = Array.from({ length: launched - firstVisible }, (_, offset) => {
+    const index = firstVisible + offset;
+    const age = Math.max(0, elapsedSec - index * simulation.taktTimeSec);
+    const queueDelay = Number.isFinite(completionInterval)
+      ? index * Math.max(0, completionInterval - simulation.taktTimeSec)
+      : 0;
+    const progress = Math.min(1, age / (nominalLeadSec + queueDelay));
+    return { index, progress, point: pointAlongRoute(route, progress) };
+  }).filter((token) => token.progress < 1);
+
+  return (
+    <g data-export-ui className="live-flow-overlay" pointerEvents="none">
+      <polyline points={route.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={canvas.themeColor} strokeWidth={2} strokeDasharray="4 8" opacity={0.3} />
+      {simulation.processMetrics.map((metric) => {
+        const size = elementDimensions(metric.element);
+        const serviceRate = metric.capacityPerDay / availableSeconds;
+        const arrivalRate = 1 / simulation.taktTimeSec;
+        const queue = Math.max(0, Math.floor(elapsedSec * (arrivalRate - serviceRate)));
+        const critical = metric.overloaded || queue > 0;
+        return <g key={`live-${metric.element.id}`}>
+          <rect x={metric.element.x - 7} y={metric.element.y - 27} width={size.width + 14} height={size.height + 34} rx={9}
+            className={`live-process-halo ${critical ? 'critical' : metric.element.id === simulation.bottleneck?.id ? 'bottleneck' : 'healthy'}`} />
+          {queue > 0 && <g transform={`translate(${metric.element.x + size.width - 40},${metric.element.y - 38})`}>
+            <rect width={80} height={22} rx={11} fill="#b42318" />
+            <text x={40} y={15} textAnchor="middle" fontSize={8} fontWeight="800" fontFamily="Arial" fill="white">FILA {queue}</text>
+          </g>}
+        </g>;
+      })}
+      {tokens.map((token) => <g key={token.index} transform={`translate(${token.point.x},${token.point.y})`} className="live-product-token">
+        <circle r={10} fill="white" stroke={canvas.themeColor} strokeWidth={3} />
+        <circle r={4} fill={canvas.themeColor} />
+        <text x={0} y={-15} textAnchor="middle" fontSize={7} fontWeight="800" fontFamily="Arial" fill="#34383e">P{token.index + 1}</text>
+      </g>)}
+    </g>
+  );
+}
+
 // ─── Popovers de edição ───────────────────────────────────────────────────────
 
 function ElementPopover({ el, onUpdate, onDelete, onClose }: {
@@ -1135,6 +1222,7 @@ export default function App() {
   const activeFuture = workspace.futures.find((variant) => variant.id === workspace.activeFutureId) ?? workspace.futures[0];
   const canvas = activeKind === 'current' ? workspace.current : activeFuture.canvas;
   const simulation = calculateCanvasSimulation(canvas);
+  const simulatedDaySeconds = canvas.assumptions.availableMinutesPerDay * 60;
   const timelineSourceElements = [...simulation.processElements, ...simulation.inventoryElements];
   const automaticTimelinePosition = timelineSourceElements.length
     ? {
@@ -1179,14 +1267,46 @@ export default function App() {
   const [demandOpen, setDemandOpen] = useState(false);
   const [scenarioCreateOpen, setScenarioCreateOpen] = useState(false);
   const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [liveRunning, setLiveRunning] = useState(false);
+  const [liveElapsedSec, setLiveElapsedSec] = useState(0);
+  const [liveSpeed, setLiveSpeed] = useState(300);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragMovedRef = useRef(false);
+  const liveFrameRef = useRef<number | null>(null);
+  const liveLastTickRef = useRef<number | null>(null);
 
   useEffect(() => {
     setSelectedId(null);
     setEditingEl(null);
     setEditingArrow(null);
+    setLiveRunning(false);
+    setLiveElapsedSec(0);
   }, [activeKind, workspace.activeFutureId]);
+
+  useEffect(() => {
+    if (!liveRunning) {
+      liveLastTickRef.current = null;
+      return;
+    }
+    const tick = (timestamp: number) => {
+      if (liveLastTickRef.current !== null) {
+        const deltaSeconds = Math.min(0.1, (timestamp - liveLastTickRef.current) / 1000);
+        setLiveElapsedSec((previous) => Math.min(simulatedDaySeconds, previous + deltaSeconds * liveSpeed));
+      }
+      liveLastTickRef.current = timestamp;
+      liveFrameRef.current = window.requestAnimationFrame(tick);
+    };
+    liveFrameRef.current = window.requestAnimationFrame(tick);
+    return () => {
+      if (liveFrameRef.current !== null) window.cancelAnimationFrame(liveFrameRef.current);
+      liveFrameRef.current = null;
+      liveLastTickRef.current = null;
+    };
+  }, [liveRunning, liveSpeed, simulatedDaySeconds]);
+
+  useEffect(() => {
+    if (liveElapsedSec >= simulatedDaySeconds && liveRunning) setLiveRunning(false);
+  }, [liveElapsedSec, liveRunning, simulatedDaySeconds]);
 
   const openElementEditor = (element: CanvasElement) => {
     if (element.id === FIXED_PLANNING_ID) {
@@ -1425,6 +1545,34 @@ export default function App() {
     });
   };
 
+  const liveLaunched = liveElapsedSec > 0 && Number.isFinite(simulation.taktTimeSec) && simulation.taktTimeSec > 0
+    ? Math.floor(liveElapsedSec / simulation.taktTimeSec) + 1
+    : 0;
+  const liveCompletionInterval = simulation.bottleneckCapacity > 0
+    ? simulatedDaySeconds / simulation.bottleneckCapacity
+    : Infinity;
+  const liveNominalLeadSec = simulation.processMetrics.reduce((sum, metric) => sum + metric.effectiveCycleSec, 0)
+    + simulation.waitingTimeMin * 60;
+  const liveCompleted = Number.isFinite(liveCompletionInterval) && liveElapsedSec >= liveNominalLeadSec
+    ? Math.min(liveLaunched, Math.floor((liveElapsedSec - liveNominalLeadSec) / liveCompletionInterval) + 1)
+    : 0;
+  const liveWip = Math.max(0, liveLaunched - liveCompleted);
+  const liveClock = `${String(Math.floor(liveElapsedSec / 3600)).padStart(2, '0')}:${String(Math.floor((liveElapsedSec % 3600) / 60)).padStart(2, '0')}`;
+  const toggleLiveSimulation = () => {
+    if (!simulation.processElements.length) {
+      window.alert('Adicione ao menos um processo com tempo de ciclo para executar a simulação.');
+      return;
+    }
+    if (liveElapsedSec >= simulatedDaySeconds) setLiveElapsedSec(0);
+    setSelectedId(null);
+    setLiveRunning((running) => !running);
+  };
+
+  const resetLiveSimulation = () => {
+    setLiveRunning(false);
+    setLiveElapsedSec(0);
+  };
+
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       {/* Sidebar */}
@@ -1455,7 +1603,7 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="save-state"><Save size={14} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div>
           <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
-          <button onClick={() => { setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Exportar</span></button>
+          <button onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Exportar</span></button>
           <button onClick={() => { if (window.confirm('Limpar os elementos do canvas? As caixas de identificação e demanda serão mantidas.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] })); setSelectedId(null); } }}>
             <RotateCcw size={17} /><span>Limpar</span>
           </button>
@@ -1490,6 +1638,9 @@ export default function App() {
             {activeKind === 'future' && <button className="future-sync-status" onClick={() => setComparisonOpen(true)} title="Comparar todos os cenários com o Estado atual">
               <BarChart3 size={15}/><span>Comparar</span>
             </button>}
+            <button className={`live-launch-button ${liveRunning ? 'running' : ''}`} onClick={toggleLiveSimulation} title="Executar o fluxo produtivo no canvas">
+              {liveRunning ? <Pause size={16}/> : <Activity size={16}/>}<span>{liveRunning ? 'Pausar' : liveElapsedSec > 0 ? 'Continuar' : 'Simular fluxo'}</span>
+            </button>
             <label className="theme-color-button" title="Personalizar a cor de todo o MFV">
               <Palette size={16}/><span>Cor do MFV</span>
               <input type="color" value={canvas.themeColor} onChange={(event) => applyThemeColor(event.target.value)} aria-label="Cor do MFV" />
@@ -1501,11 +1652,31 @@ export default function App() {
               <button onClick={() => setZoom(z => Math.min(4, z*1.15))}><ZoomIn size={15}/></button>
               <button onClick={() => { setZoom(1); setPan({x:80,y:80}); }} title="Reset"><Minus size={13}/></button>
             </div>
-            <button className="primary-button" onClick={() => { setSelectedId(null); setExportOpen(true); }}>
+            <button className="primary-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}>
               <Download size={17}/>Exportar
             </button>
           </div>
         </header>
+
+        {(liveRunning || liveElapsedSec > 0) && <div className="live-simulation-bar no-print">
+          <div className="live-playback-controls">
+            <button className="live-play-button" onClick={toggleLiveSimulation} aria-label={liveRunning ? 'Pausar simulação' : 'Continuar simulação'}>
+              {liveRunning ? <Pause size={16}/> : <Play size={16}/>}
+            </button>
+            <button onClick={resetLiveSimulation} aria-label="Reiniciar simulação"><Square size={13}/></button>
+            <label><span>Velocidade</span><select value={liveSpeed} onChange={(event) => setLiveSpeed(Number(event.target.value))}>
+              <option value={60}>1 min/s</option><option value={300}>5 min/s</option><option value={1200}>20 min/s</option>
+            </select></label>
+          </div>
+          <div className="live-metrics">
+            <div><span>Tempo simulado</span><strong>{liveClock}</strong></div>
+            <div><span>Ordens liberadas</span><strong>{liveLaunched}</strong></div>
+            <div><span>Peças concluídas</span><strong>{liveCompleted}</strong></div>
+            <div className={liveWip > 0 ? 'attention' : ''}><span>WIP em fluxo</span><strong>{liveWip}</strong></div>
+            <div className={simulation.overloadedProcesses.length ? 'critical' : 'healthy'}><span>Situação</span><strong>{simulation.overloadedProcesses.length ? `${simulation.overloadedProcesses.length} quebra(m)` : 'Fluxo atende'}</strong></div>
+          </div>
+          <div className="live-day-progress"><i style={{ width: `${Math.min(100, (liveElapsedSec / simulatedDaySeconds) * 100)}%` }}/></div>
+        </div>}
 
         {activeKind === 'future' && <div className="scenario-toolbar no-print">
           <div className="scenario-selector">
@@ -1577,6 +1748,7 @@ export default function App() {
                 {renderElement(el, selectedId===el.id, () => openElementEditor(el), simulation, canvas.assumptions.availableMinutesPerDay, canvas.themeColor)}
               </g>
             ))}
+            <LiveFlowOverlay canvas={canvas} simulation={simulation} elapsedSec={liveElapsedSec} />
             {automaticTimelinePosition && (
               <g transform={`translate(${automaticTimelinePosition.x},${automaticTimelinePosition.y})`}>
                 <TimelineSymbol

@@ -9,6 +9,7 @@ Aplicação web para criar, comparar e imprimir cenários de Mapeamento de Fluxo
 - Cálculo de takt time, capacidade efetiva, gargalo, perdas acumuladas e lead time
 - Cenários rápidos de demanda, setup, disponibilidade, qualidade e recurso no gargalo
 - Comparação lado a lado entre o estado atual e todos os cenários futuros
+- Execução visual do fluxo com relógio simulado, peças em movimento, filas, WIP e conclusão diária
 - Biblioteca de símbolos e fluxos inspirada no padrão visual das planilhas MFV
 - Salvamento local no navegador
 - Relatório preparado para impressão ou PDF
