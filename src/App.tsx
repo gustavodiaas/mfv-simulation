@@ -6,7 +6,7 @@ import {
   RotateCcw, Route, Save, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
 import {
-  ARROW_KINDS, LIBRARY, makeId,
+  ARROW_KINDS, DEFAULT_TRUCK_COLOR, LIBRARY, makeId,
   type CanvasArrow, type CanvasElement, type CanvasState,
   type ElementKind, type LibraryItem, type ScenarioAssumptions,
 } from './canvas-types';
@@ -26,9 +26,10 @@ import truckThreeQuarter from './assets/truck-three-quarter.png';
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'mfv-canvas:v4';
-const PREVIOUS_STORAGE_KEY = 'mfv-canvas:v3';
-const OLDER_STORAGE_KEY = 'mfv-canvas:v2';
+const STORAGE_KEY = 'mfv-canvas:v5';
+const PREVIOUS_STORAGE_KEY = 'mfv-canvas:v4';
+const OLDER_STORAGE_KEY = 'mfv-canvas:v3';
+const OLDEST_STORAGE_KEY = 'mfv-canvas:v2';
 const LEGACY_STORAGE_KEY = 'mfv-simulation:v2';
 const FIXED_PLANNING_ID = '__mfv-demand-planning__';
 const FIXED_IDENTIFICATION_ID = '__mfv-identification__';
@@ -191,7 +192,7 @@ function createFixedIdentification(planning: CanvasElement): CanvasElement {
   };
 }
 
-function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial<Scenario>): CanvasState {
+function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial<Scenario>, resetThemeLinkedTrucks = false): CanvasState {
   const elements = Array.isArray(raw?.elements) ? raw.elements : [];
   const existingPlanning = elements.find((element) => element.id === FIXED_PLANNING_ID)
     ?? elements.find((element) => element.kind === 'planning');
@@ -208,6 +209,7 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
   const fixedIdentification = existingIdentification
     ? { ...existingIdentification, id: FIXED_IDENTIFICATION_ID, kind: 'identification' as const }
     : createFixedIdentification(fixedPlanning);
+  const themeColor = validThemeColor(raw?.themeColor);
   return {
     elements: [
       fixedIdentification,
@@ -216,11 +218,17 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
         && element.id !== FIXED_PLANNING_ID && element.id !== FIXED_IDENTIFICATION_ID && element.kind !== 'timeline')
         .map((element) => ['process','shared-process'].includes(element.kind) && element.data.qualidade === undefined
           ? { ...element, data: { ...element.data, qualidade: 100 } }
-          : element),
+          : element)
+        .map((element) => {
+          if (element.kind !== 'truck') return element;
+          const truckColor = String(element.data.color ?? '');
+          const shouldRestoreDefault = !truckColor || (resetThemeLinkedTrucks && truckColor.toLowerCase() === themeColor.toLowerCase());
+          return shouldRestoreDefault ? { ...element, data: { ...element.data, color: DEFAULT_TRUCK_COLOR } } : element;
+        }),
     ],
     arrows: Array.isArray(raw?.arrows) ? raw.arrows : [],
     assumptions,
-    themeColor: validThemeColor(raw?.themeColor),
+    themeColor,
   };
 }
 
@@ -364,6 +372,7 @@ function loadWorkspace(): CanvasWorkspace {
     const saved = localStorage.getItem(STORAGE_KEY);
     const previousCanvasRaw = localStorage.getItem(PREVIOUS_STORAGE_KEY);
     const olderCanvasRaw = localStorage.getItem(OLDER_STORAGE_KEY);
+    const oldestCanvasRaw = localStorage.getItem(OLDEST_STORAGE_KEY);
     const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
     const legacy = legacyRaw ? JSON.parse(legacyRaw) as { current?: Scenario; future?: Scenario } : undefined;
     if (saved) {
@@ -378,11 +387,25 @@ function loadWorkspace(): CanvasWorkspace {
         activeFutureId: futures.some((variant) => variant.id === parsed.activeFutureId) ? String(parsed.activeFutureId) : futures[0].id,
       };
     }
-    const priorRaw = previousCanvasRaw ?? olderCanvasRaw;
+    if (previousCanvasRaw) {
+      const parsed = JSON.parse(previousCanvasRaw) as Partial<CanvasWorkspace>;
+      const current = normalizeCanvas(parsed.current, legacy?.current, true);
+      const futures = Array.isArray(parsed.futures) && parsed.futures.length
+        ? parsed.futures.map((variant) => ({ ...variant, canvas: normalizeCanvas(variant.canvas, legacy?.future, true) }))
+        : [createFutureVariant(current)];
+      const result: CanvasWorkspace = {
+        current,
+        futures,
+        activeFutureId: futures.some((variant) => variant.id === parsed.activeFutureId) ? String(parsed.activeFutureId) : futures[0].id,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+      return result;
+    }
+    const priorRaw = olderCanvasRaw ?? oldestCanvasRaw;
     if (priorRaw) {
       const parsed = JSON.parse(priorRaw) as Partial<Record<ActiveKind, CanvasState>>;
-      const current = normalizeCanvas(parsed.current, legacy?.current);
-      const future = parsed.future ? normalizeCanvas(parsed.future, legacy?.future) : cloneCanvas(current);
+      const current = normalizeCanvas(parsed.current, legacy?.current, true);
+      const future = parsed.future ? normalizeCanvas(parsed.future, legacy?.future, true) : cloneCanvas(current);
       const result: CanvasWorkspace = { current, futures: [{ id: 'future-base', name: 'Cenário base', canvas: future }], activeFutureId: 'future-base' };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
       return result;
@@ -533,7 +556,7 @@ function LibraryThumb({ kind, accentColor }: { kind: ElementKind; accentColor: s
       x: 0,
       y: 0,
       label: item.defaultLabel,
-      data: { ...item.defaultData, ...(kind === 'truck' ? { color: accentColor } : {}) },
+      data: { ...item.defaultData },
     };
     return (
       <svg className="library-symbol-preview" width={52} height={52} viewBox={`${-6} ${-6} ${item.w + 12} ${item.h + 12}`} preserveAspectRatio="xMidYMid meet">
@@ -726,9 +749,9 @@ function ElementPopover({ el, onUpdate, onDelete, onClose }: {
               <input value={el.label} onChange={(e) => onUpdate({ label: e.target.value })} />
             ) : f.type === 'color' ? (
               <div className="popover-color-wrap">
-                <input className="popover-color-input" type="color" value={String(el.data[f.key] ?? '#eee9df')}
+                <input className="popover-color-input" type="color" value={String(el.data[f.key] ?? DEFAULT_TRUCK_COLOR)}
                   onChange={(e) => onUpdate({ data: { ...el.data, [f.key]: e.target.value } })} />
-                <span>{String(el.data[f.key] ?? '#eee9df').toUpperCase()}</span>
+                <span>{String(el.data[f.key] ?? DEFAULT_TRUCK_COLOR).toUpperCase()}</span>
               </div>
             ) : (
               <div className="popover-input-wrap">
@@ -1202,7 +1225,6 @@ export default function App() {
       setSelectedId(a.id);
     } else {
       const draftData = { ...lib.defaultData };
-      if (kind === 'truck') draftData.color = canvas.themeColor;
       const draft: CanvasElement = { id: makeId(), kind, x: x - lib.w/2, y: y - lib.h/2, label: lib.defaultLabel, data: draftData };
       const snapped = snapElementPosition(draft, draft.x, draft.y, canvas.elements);
       const el = { ...draft, x: snapped.x, y: snapped.y };
@@ -1334,9 +1356,6 @@ export default function App() {
     setCanvas((previous) => ({
       ...previous,
       themeColor: color,
-      elements: previous.elements.map((element) => element.kind === 'truck'
-        ? { ...element, data: { ...element.data, color } }
-        : element),
     }));
   };
 

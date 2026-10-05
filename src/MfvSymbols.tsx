@@ -1,4 +1,4 @@
-import type { CanvasElement } from './canvas-types';
+import { DEFAULT_TRUCK_COLOR, type CanvasElement } from './canvas-types';
 import truckThreeQuarter from './assets/truck-three-quarter.png';
 
 interface SymProps {
@@ -157,7 +157,7 @@ export function PartySymbol({ el, selected, onEdit, accentColor }: SymProps) {
 // ── Caminhão ──────────────────────────────────────────────────────────────────
 export function TruckSymbol({ el, selected, onEdit }: SymProps) {
   const w = 210; const h = 130;
-  const color = String(el.data.color ?? '#eee9df');
+  const color = String(el.data.color ?? DEFAULT_TRUCK_COLOR);
   const filterId = `truck-tint-${el.id}`;
   return (
     <g>

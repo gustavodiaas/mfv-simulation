@@ -102,6 +102,8 @@ export interface LibraryItem {
   h: number;
 }
 
+export const DEFAULT_TRUCK_COLOR = '#eee9df';
+
 export const ARROW_KINDS: ElementKind[] = [
   'arrow-push', 'arrow-pull', 'arrow-info-manual', 'arrow-info-electronic', 'arrow-adjustment',
   'arrow-schedule', 'arrow-shipment', 'arrow-physical',
@@ -128,7 +130,7 @@ export const LIBRARY: LibraryItem[] = [
   { kind: 'waiting-time',      label: 'Espera / secagem',   group: 'material',   defaultLabel: 'Espera',              defaultData: { durationMin: 60 },                               w: 130, h: 76  },
   { kind: 'resource-zone',     label: 'Área de recursos',   group: 'material',   defaultLabel: 'RECURSOS DA CÉLULA / MANUTENÇÃO', defaultData: {},                                  w: 340, h: 180 },
   // ── Logística
-  { kind: 'truck',             label: 'Caminhão',           group: 'logistica',  defaultLabel: 'Entrega',             defaultData: { freq: 1, color: '#eee9df' },                    w: 210, h: 130 },
+  { kind: 'truck',             label: 'Caminhão',           group: 'logistica',  defaultLabel: 'Entrega',             defaultData: { freq: 1, color: DEFAULT_TRUCK_COLOR },          w: 210, h: 130 },
   { kind: 'transport-air',     label: 'Transporte aéreo',   group: 'logistica',  defaultLabel: 'Aéreo',               defaultData: { freq: 1 },                                      w: 100, h: 54  },
   { kind: 'transport-ship',    label: 'Transporte marítimo', group: 'logistica', defaultLabel: 'Marítimo',            defaultData: { freq: 1 },                                      w: 105, h: 58  },
   { kind: 'forklift',          label: 'Empilhadeira',       group: 'logistica',  defaultLabel: 'Movimentação',        defaultData: { distance: 0 },                                  w: 90,  h: 58  },
