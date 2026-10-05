@@ -728,19 +728,63 @@ function pointAlongRoute(points: { x: number; y: number }[], progress: number) {
   return points[points.length - 1];
 }
 
+function bottleneckGuidance(metric: ReturnType<typeof calculateCanvasSimulation>['processMetrics'][number], assumptions: ScenarioAssumptions) {
+  const cycle = Math.max(0, Number(metric.element.data.tc) || 0);
+  const setup = Math.max(0, Number(metric.element.data.setup) || 0);
+  const lot = Math.max(1, Number(metric.element.data.lote) || 1);
+  const setupPerUnitSec = setup * 60 / lot;
+  const availability = Math.min(100, Math.max(1, Number(metric.element.data.disp) || 100));
+  const quality = Math.min(100, Math.max(0.1, Number(metric.element.data.qualidade) || 100));
+  const resources = Math.max(1, Number(metric.element.data.recurso) || 1);
+  const setupShare = cycle + setupPerUnitSec > 0 ? setupPerUnitSec / (cycle + setupPerUnitSec) : 0;
+  const load = Math.max(100, metric.loadPercent);
+  const reduction = Math.max(0, (1 - 100 / load) * 100);
+  const extraResources = Math.max(1, Math.ceil(resources * load / 100) - resources);
+  const dailyDemand = assumptions.monthlyDemand / assumptions.workdaysPerMonth;
+  const capacityGap = Math.max(0, dailyDemand - metric.capacityPerDay);
+
+  if (setupShare >= 0.15) return {
+    cause: [`Setup representa ${(setupShare * 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% do tempo efetivo.`, `Capacidade ${metric.capacityPerDay.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/dia · faltam ${capacityGap.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/dia.`],
+    actions: [`Reduza o setup e libere lotes menores.`, `Meta: diminuir o tempo efetivo em ${reduction.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%.`],
+  };
+  if (availability < 90) {
+    const targetAvailability = Math.min(100, availability * load / 100);
+    return {
+      cause: [`Disponibilidade de ${availability.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% limita a saída.`, `Carga calculada em ${metric.loadPercent.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% do processo.`],
+      actions: [`Eleve a disponibilidade para perto de ${targetAvailability.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%.`, `Atue em paradas, manutenção e abastecimento.`],
+    };
+  }
+  if (quality < 98) return {
+    cause: [`Qualidade de ${quality.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% aumenta a carga a montante.`, `Perdas acumuladas exigem produzir acima da demanda.`],
+    actions: [`Reduza refugo e retrabalho neste processo.`, `Meta inicial: qualidade acima de 98%.`],
+  };
+  return {
+    cause: [`T/C efetivo ${metric.effectiveCycleSec.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}s · carga ${metric.loadPercent.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%.`, `Capacidade ${metric.capacityPerDay.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/dia para demanda ${dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/dia.`],
+    actions: [`Reduza o ciclo efetivo em ${reduction.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%.`, `Ou adicione ${extraResources} recurso(s) e rebalanceie o trabalho.`],
+  };
+}
+
 function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
   canvas: CanvasState;
   simulation: ReturnType<typeof calculateCanvasSimulation>;
   elapsedSec: number;
 }) {
   if (elapsedSec <= 0 || simulation.processElements.length === 0 || !Number.isFinite(simulation.taktTimeSec)) return null;
+  const routeKinds: ElementKind[] = [
+    'supplier','truck','raw-material','warehouse','inventory','safety-stock','buffer','supermarket','fifo',
+    'process','shared-process','waiting-time','finished-goods','shipping-point','customer',
+  ];
   const stageElements = canvas.elements
-    .filter((element) => ['process','shared-process','waiting-time'].includes(element.kind))
+    .filter((element) => routeKinds.includes(element.kind))
     .sort((a, b) => a.x - b.x);
   if (!stageElements.length) return null;
   const centers = stageElements.map((element) => {
     const size = elementDimensions(element);
     return { x: element.x + size.width / 2, y: element.y + size.height / 2 };
+  });
+  const truckCenters = stageElements.filter((element) => element.kind === 'truck').map((element) => {
+    const size = elementDimensions(element);
+    return { id: element.id, x: element.x + size.width * 0.42, y: element.y + size.height * 0.43, element, size };
   });
   const route = [
     { x: centers[0].x - 90, y: centers[0].y },
@@ -763,12 +807,24 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
       ? index * Math.max(0, completionInterval - simulation.taktTimeSec)
       : 0;
     const progress = Math.min(1, age / (nominalLeadSec + queueDelay));
-    return { index, progress, point: pointAlongRoute(route, progress) };
+    const point = pointAlongRoute(route, progress);
+    const truck = truckCenters.find((center) => Math.hypot(point.x - center.x, point.y - center.y) < 58);
+    return { index, progress, point, truckId: truck?.id };
   }).filter((token) => token.progress < 1);
+  const loadingTruckIds = new Set(tokens.map((token) => token.truckId).filter(Boolean));
+  const bottleneckMetric = simulation.processMetrics.find((metric) => metric.element.id === simulation.bottleneck?.id);
+  const guidance = bottleneckMetric?.overloaded ? bottleneckGuidance(bottleneckMetric, canvas.assumptions) : null;
 
   return (
     <g data-export-ui className="live-flow-overlay" pointerEvents="none">
       <polyline points={route.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={canvas.themeColor} strokeWidth={2} strokeDasharray="4 8" opacity={0.3} />
+      {truckCenters.map((truck) => loadingTruckIds.has(truck.id) && <g key={`loading-${truck.id}`}>
+        <rect x={truck.element.x - 5} y={truck.element.y - 5} width={truck.size.width + 10} height={truck.size.height + 10} rx={12} className="live-truck-loading" />
+        <g transform={`translate(${truck.element.x + truck.size.width / 2 - 45},${truck.element.y - 30})`}>
+          <rect width={90} height={22} rx={11} fill="#1a6b3a" />
+          <text x={45} y={15} textAnchor="middle" fontSize={8} fontWeight="800" fontFamily="Arial" fill="white">CARREGANDO</text>
+        </g>
+      </g>)}
       {simulation.processMetrics.map((metric) => {
         const size = elementDimensions(metric.element);
         const serviceRate = metric.capacityPerDay / availableSeconds;
@@ -784,10 +840,33 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
           </g>}
         </g>;
       })}
-      {tokens.map((token) => <g key={token.index} transform={`translate(${token.point.x},${token.point.y})`} className="live-product-token">
-        <circle r={10} fill="white" stroke={canvas.themeColor} strokeWidth={3} />
-        <circle r={4} fill={canvas.themeColor} />
-        <text x={0} y={-15} textAnchor="middle" fontSize={7} fontWeight="800" fontFamily="Arial" fill="#34383e">P{token.index + 1}</text>
+      {guidance && bottleneckMetric && (() => {
+        const size = elementDimensions(bottleneckMetric.element);
+        const placeAbove = bottleneckMetric.element.y > 170;
+        const cardX = bottleneckMetric.element.x + size.width / 2 - 135;
+        const cardY = placeAbove ? bottleneckMetric.element.y - 168 : bottleneckMetric.element.y + size.height + 32;
+        const anchorX = bottleneckMetric.element.x + size.width / 2;
+        const anchorY = placeAbove ? bottleneckMetric.element.y : bottleneckMetric.element.y + size.height;
+        const cardAnchorY = placeAbove ? cardY + 132 : cardY;
+        return <g className="live-bottleneck-help">
+          <path d={`M${anchorX},${anchorY} L${cardX + 135},${cardAnchorY}`} fill="none" stroke="#b42318" strokeWidth={2} strokeDasharray="5 3" />
+          <g transform={`translate(${cardX},${cardY})`}>
+            <rect width={270} height={132} rx={12} fill="white" stroke="#e6aaa5" strokeWidth={1.5} />
+            <rect width={270} height={30} rx={12} fill="#fff0ee" />
+            <circle cx={17} cy={15} r={7} fill="#b42318"/><text x={17} y={19} textAnchor="middle" fontSize={9} fontWeight="900" fontFamily="Arial" fill="white">!</text>
+            <text x={31} y={19} fontSize={9} fontWeight="900" fontFamily="Arial" fill="#8f1f17">POR QUE ESTÁ GARGALANDO?</text>
+            {guidance.cause.map((line,index)=><text key={`cause-${index}`} x={14} y={48+index*14} fontSize={7.5} fontFamily="Arial" fill="#4b5159">{line.slice(0,58)}</text>)}
+            <text x={14} y={82} fontSize={7.5} fontWeight="900" fontFamily="Arial" fill="#167044">COMO ALIVIAR</text>
+            {guidance.actions.map((line,index)=><text key={`action-${index}`} x={14} y={98+index*15} fontSize={7.5} fontWeight="700" fontFamily="Arial" fill="#2f3b45">• {line.slice(0,57)}</text>)}
+          </g>
+        </g>;
+      })()}
+      {tokens.map((token) => <g key={token.index} transform={`translate(${token.point.x},${token.point.y})`} className={`live-product-token ${token.truckId ? 'inside-truck' : ''}`}>
+        <path d="M-13,-7 L0,-13 L13,-7 L0,-1 Z" fill={canvas.themeColor} stroke="#23415a" strokeWidth={1.2}/>
+        <path d="M-13,-7 V8 L0,14 V-1 Z" fill="white" stroke="#23415a" strokeWidth={1.2}/>
+        <path d="M13,-7 V8 L0,14 V-1 Z" fill="#dcecff" stroke="#23415a" strokeWidth={1.2}/>
+        <path d="M0,-13 V-1" stroke="#23415a" strokeWidth={1}/>
+        <text x={0} y={-18} textAnchor="middle" fontSize={7} fontWeight="800" fontFamily="Arial" fill="#34383e">CX {token.index + 1}</text>
       </g>)}
     </g>
   );
@@ -1671,7 +1750,7 @@ export default function App() {
           <div className="live-metrics">
             <div><span>Tempo simulado</span><strong>{liveClock}</strong></div>
             <div><span>Ordens liberadas</span><strong>{liveLaunched}</strong></div>
-            <div><span>Peças concluídas</span><strong>{liveCompleted}</strong></div>
+            <div><span>Caixas concluídas</span><strong>{liveCompleted}</strong></div>
             <div className={liveWip > 0 ? 'attention' : ''}><span>WIP em fluxo</span><strong>{liveWip}</strong></div>
             <div className={simulation.overloadedProcesses.length ? 'critical' : 'healthy'}><span>Situação</span><strong>{simulation.overloadedProcesses.length ? `${simulation.overloadedProcesses.length} quebra(m)` : 'Fluxo atende'}</strong></div>
           </div>

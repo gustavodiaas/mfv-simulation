@@ -240,7 +240,10 @@ button, input, select { font: inherit; cursor: pointer; }
 .live-process-halo.healthy { stroke: #28b76c; }
 .live-process-halo.bottleneck { stroke: #f4b83f; stroke-dasharray: 8 4; }
 .live-process-halo.critical { stroke: #ff3b30; filter: drop-shadow(0 0 6px rgba(255,59,48,.55)); }
-.live-product-token { filter: drop-shadow(0 2px 4px rgba(0,0,0,.28)); }
+.live-product-token { filter: drop-shadow(0 2px 4px rgba(0,0,0,.28)); transition: opacity .18s ease; }
+.live-product-token.inside-truck { opacity: .2; }
+.live-truck-loading { fill: rgba(40,183,108,.08); stroke: #28b76c; stroke-width: 4; stroke-dasharray: 9 5; filter: drop-shadow(0 0 7px rgba(40,183,108,.45)); }
+.live-bottleneck-help { filter: drop-shadow(0 8px 16px rgba(35,20,18,.16)); }
 .sidebar-nav small { display: inline-grid; place-items: center; min-width: 17px; height: 17px; margin-left: 4px; padding: 0 5px; color: currentColor; background: rgba(255,255,255,.18); border-radius: 9px; font-size: 8px; }
 .scenario-toolbar {
   min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
