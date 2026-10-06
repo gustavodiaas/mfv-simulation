@@ -55,11 +55,19 @@ function validThemeColor(value: unknown) {
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : DEFAULT_THEME_COLOR;
 }
 
-function elementDimensions(element: CanvasElement) {
+function defaultElementDimensions(element: Pick<CanvasElement, 'kind'>) {
   if (element.kind === 'identification') return { width: 390, height: 100 };
   if (element.kind === 'planning') return { width: 190, height: 142 };
   const item = LIBRARY.find((candidate) => candidate.kind === element.kind);
   return { width: item?.w || 120, height: item?.h || 80 };
+}
+
+function elementDimensions(element: CanvasElement) {
+  const defaults = defaultElementDimensions(element);
+  return {
+    width: Math.min(1200, Math.max(30, Number(element.data.width) || defaults.width)),
+    height: Math.min(800, Math.max(30, Number(element.data.height) || defaults.height)),
+  };
 }
 
 const DEFAULT_ASSUMPTIONS: ScenarioAssumptions = {
@@ -202,7 +210,7 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
     availableMinutesPerDay: positiveNumber(raw?.assumptions?.availableMinutesPerDay ?? legacy?.availableMinutesPerDay ?? existingPlanning?.data.minutosDia, DEFAULT_ASSUMPTIONS.availableMinutesPerDay),
   };
   const fixedPlanning = existingPlanning
-    ? { ...existingPlanning, id: FIXED_PLANNING_ID, kind: 'planning' as const, data: planningData(assumptions) }
+    ? { ...existingPlanning, id: FIXED_PLANNING_ID, kind: 'planning' as const, data: { ...existingPlanning.data, ...planningData(assumptions) } }
     : createFixedPlanning(assumptions);
   const existingIdentification = elements.find((element) => element.id === FIXED_IDENTIFICATION_ID)
     ?? elements.find((element) => element.kind === 'identification');
@@ -514,34 +522,39 @@ function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void,
     processLoadPercent: processMetric?.loadPercent,
     processCapacityPerDay: processMetric?.capacityPerDay,
   };
+  let symbol;
   switch (el.kind) {
-    case 'process':             return <ProcessSymbol {...p} />;
-    case 'work-cell':           return <WorkCellSymbol {...p} />;
-    case 'supplier': case 'customer': return <PartySymbol {...p} />;
-    case 'truck':               return <TruckSymbol {...p} />;
-    case 'shipping-point':      return <ShippingPointSymbol {...p} />;
-    case 'inventory':           return <InventorySymbol {...p} />;
-    case 'buffer':              return <BufferSymbol {...p} />;
-    case 'supermarket':         return <SupermarketSymbol {...p} />;
-    case 'fifo':                return <FifoSymbol {...p} />;
-    case 'kanban-production':   return <KanbanProductionSymbol {...p} />;
-    case 'kanban-withdrawal':   return <KanbanWithdrawalSymbol {...p} />;
-    case 'kanban-board':        return <KanbanBoardSymbol {...p} />;
-    case 'heijunka':            return <HeijunkaSymbol {...p} />;
-    case 'sequencing-box':      return <SequencingBoxSymbol {...p} />;
-    case 'planning':            return <PlanningSymbol {...p} />;
-    case 'identification':      return <IdentificationSymbol {...p} />;
-    case 'data-box':            return <DataBoxSymbol {...p} />;
-    case 'customer-demand':     return <CustomerDemandSymbol {...p} />;
-    case 'production-schedule': return <ProductionScheduleSymbol {...p} />;
-    case 'operator':            return <OperatorSymbol {...p} />;
-    case 'kaizen':              return <KaizenSymbol {...p} />;
-    case 'intervention':        return <InterventionSymbol {...p} />;
-    case 'note':                return <NoteSymbol {...p} />;
-    case 'timeline':            return <TimelineSymbol {...p} />;
-    case 'legend':              return <LegendSymbol {...p} />;
-    default:                    return <ExtendedSymbol {...p} />;
+    case 'process':             symbol = <ProcessSymbol {...p} />; break;
+    case 'work-cell':           symbol = <WorkCellSymbol {...p} />; break;
+    case 'supplier': case 'customer': symbol = <PartySymbol {...p} />; break;
+    case 'truck':               symbol = <TruckSymbol {...p} />; break;
+    case 'shipping-point':      symbol = <ShippingPointSymbol {...p} />; break;
+    case 'inventory':           symbol = <InventorySymbol {...p} />; break;
+    case 'buffer':              symbol = <BufferSymbol {...p} />; break;
+    case 'supermarket':         symbol = <SupermarketSymbol {...p} />; break;
+    case 'fifo':                symbol = <FifoSymbol {...p} />; break;
+    case 'kanban-production':   symbol = <KanbanProductionSymbol {...p} />; break;
+    case 'kanban-withdrawal':   symbol = <KanbanWithdrawalSymbol {...p} />; break;
+    case 'kanban-board':        symbol = <KanbanBoardSymbol {...p} />; break;
+    case 'heijunka':            symbol = <HeijunkaSymbol {...p} />; break;
+    case 'sequencing-box':      symbol = <SequencingBoxSymbol {...p} />; break;
+    case 'planning':            symbol = <PlanningSymbol {...p} />; break;
+    case 'identification':      symbol = <IdentificationSymbol {...p} />; break;
+    case 'data-box':            symbol = <DataBoxSymbol {...p} />; break;
+    case 'customer-demand':     symbol = <CustomerDemandSymbol {...p} />; break;
+    case 'production-schedule': symbol = <ProductionScheduleSymbol {...p} />; break;
+    case 'operator':            symbol = <OperatorSymbol {...p} />; break;
+    case 'kaizen':              symbol = <KaizenSymbol {...p} />; break;
+    case 'intervention':        symbol = <InterventionSymbol {...p} />; break;
+    case 'note':                symbol = <NoteSymbol {...p} />; break;
+    case 'timeline':            symbol = <TimelineSymbol {...p} />; break;
+    case 'legend':              symbol = <LegendSymbol {...p} />; break;
+    default:                    symbol = <ExtendedSymbol {...p} />;
   }
+  const defaults = defaultElementDimensions(el);
+  const size = elementDimensions(el);
+  if (size.width === defaults.width && size.height === defaults.height) return symbol;
+  return <g transform={`scale(${size.width / defaults.width} ${size.height / defaults.height})`}>{symbol}</g>;
 }
 
 // ─── Thumbs da biblioteca ─────────────────────────────────────────────────────
@@ -877,6 +890,39 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
 
 // ─── Popovers de edição ───────────────────────────────────────────────────────
 
+function ElementSizeFields({ el, onUpdate }: {
+  el: CanvasElement;
+  onUpdate: (patch: Partial<CanvasElement>) => void;
+}) {
+  const defaults = defaultElementDimensions(el);
+  const size = elementDimensions(el);
+  const setSize = (key: 'width' | 'height', value: string) => {
+    const limit = key === 'width' ? 1200 : 800;
+    const fallback = key === 'width' ? defaults.width : defaults.height;
+    const next = Math.min(limit, Math.max(30, Number(value) || fallback));
+    onUpdate({ data: { ...el.data, [key]: next } });
+  };
+  const restore = () => {
+    const data = { ...el.data };
+    delete data.width;
+    delete data.height;
+    onUpdate({ data });
+  };
+
+  return (
+    <div className="element-size-editor">
+      <div className="element-size-heading">
+        <span>Tamanho</span>
+        <button type="button" onClick={restore}>Restaurar padrão</button>
+      </div>
+      <div className="element-size-grid">
+        <label><span>Largura</span><div className="popover-input-wrap"><input type="number" min={30} max={1200} step={10} value={size.width} onChange={(event) => setSize('width', event.target.value)} /><span>px</span></div></label>
+        <label><span>Altura</span><div className="popover-input-wrap"><input type="number" min={30} max={800} step={10} value={size.height} onChange={(event) => setSize('height', event.target.value)} /><span>px</span></div></label>
+      </div>
+    </div>
+  );
+}
+
 function ElementPopover({ el, onUpdate, onDelete, onClose }: {
   el: CanvasElement; onUpdate: (p: Partial<CanvasElement>) => void;
   onDelete: () => void; onClose: () => void;
@@ -931,6 +977,7 @@ function ElementPopover({ el, onUpdate, onDelete, onClose }: {
             )}
           </div>
         ))}
+        <ElementSizeFields el={el} onUpdate={onUpdate} />
       </div>
       <div className="popover-footer">
         <button className="popover-delete" onClick={onDelete}><Trash2 size={13} />Excluir</button>
@@ -1020,6 +1067,7 @@ function IdentificationEditor({ el, onUpdate, onClose }: {
             <label><span>Família de produtos</span><input value={String(el.data.family ?? '')} onChange={(event) => updateData('family', event.target.value)} placeholder="Ex.: Camas infantis" /></label>
             <label><span>Empresa</span><input value={String(el.data.companyName ?? '')} onChange={(event) => updateData('companyName', event.target.value)} placeholder="Nome opcional" /></label>
             <label><span>Produto</span><input value={String(el.data.productName ?? '')} onChange={(event) => updateData('productName', event.target.value)} placeholder="Nome opcional" /></label>
+            <ElementSizeFields el={el} onUpdate={onUpdate} />
           </div>
           <div className="identification-images">
             {imageField('companyImage', 'Empresa', 'Logotipo ou foto da empresa')}
@@ -1034,9 +1082,11 @@ function IdentificationEditor({ el, onUpdate, onClose }: {
   );
 }
 
-function DemandModal({ assumptions, onSave, onClose }: {
+function DemandModal({ assumptions, planning, onSave, onUpdatePlanning, onClose }: {
   assumptions: ScenarioAssumptions;
+  planning: CanvasElement;
   onSave: (next: ScenarioAssumptions) => void;
+  onUpdatePlanning: (patch: Partial<CanvasElement>) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState(assumptions);
@@ -1094,6 +1144,7 @@ function DemandModal({ assumptions, onSave, onClose }: {
                 <span>min/dia</span>
               </div>
             </label>
+            <ElementSizeFields el={planning} onUpdate={onUpdatePlanning} />
           </div>
 
           <div className="takt-result-card">
@@ -1547,7 +1598,7 @@ export default function App() {
       ...previous,
       assumptions,
       elements: previous.elements.map((element) => element.id === FIXED_PLANNING_ID
-        ? { ...element, data: planningData(assumptions) }
+        ? { ...element, data: { ...element.data, ...planningData(assumptions) } }
         : element),
     }));
     setDemandOpen(false);
@@ -1680,7 +1731,7 @@ export default function App() {
           </button>
         </nav>
 
-        {!sidebarCollapsed && <LibraryPanel onDragStart={onLibDragStart} accentColor={canvas.themeColor} />}
+        {!sidebarCollapsed && <LibraryPanel onDragStart={onLibDragStart} accentColor={DEFAULT_THEME_COLOR} />}
 
         <div className="sidebar-bottom">
           <div className="save-state"><Save size={14} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div>
@@ -1874,7 +1925,11 @@ export default function App() {
           onClose={() => setEditingArrow(null)} />
       )}
       {exportOpen && <ExportModal svgRef={svgRef} name={activeKind==='current'?'Estado_Atual':`Estado_Futuro_${activeFuture.name.replace(/[^a-z0-9]+/gi,'_')}`} onClose={() => setExportOpen(false)} />}
-      {demandOpen && <DemandModal assumptions={canvas.assumptions} onSave={saveAssumptions} onClose={() => setDemandOpen(false)} />}
+      {demandOpen && <DemandModal assumptions={canvas.assumptions}
+        planning={canvas.elements.find((element) => element.id === FIXED_PLANNING_ID)!}
+        onSave={saveAssumptions}
+        onUpdatePlanning={(patch) => updateEl(FIXED_PLANNING_ID, patch)}
+        onClose={() => setDemandOpen(false)} />}
       {scenarioCreateOpen && <ScenarioCreateModal onCreate={createScenario} onClose={() => setScenarioCreateOpen(false)} />}
       {comparisonOpen && <ComparisonModal workspace={workspace} onSelect={selectFuture} onClose={() => setComparisonOpen(false)} />}
     </div>
