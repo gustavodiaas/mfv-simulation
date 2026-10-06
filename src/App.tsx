@@ -2952,7 +2952,9 @@ export default function App() {
         </nav>
 
         {!sidebarCollapsed && <div className="sidebar-workspace">
-          <LibraryPanel onDragStart={onLibDragStart} accentColor={DEFAULT_THEME_COLOR} />
+          <div className="sidebar-group">
+            <LibraryPanel onDragStart={onLibDragStart} accentColor={DEFAULT_THEME_COLOR} />
+          </div>
 
           <section className={`sidebar-lean-panel ${simulation.leanWarnings.length ? 'warning' : 'ready'} ${leanPanelOpen ? 'open' : 'collapsed'}`}>
             <button className="sidebar-panel-heading" onClick={() => setLeanPanelOpen((value) => !value)} aria-expanded={leanPanelOpen}>
@@ -2983,21 +2985,26 @@ export default function App() {
               </div>
             </div>}
           </section>
+
+          <div className="sidebar-bottom">
+            <button className="sidebar-help-button" onClick={() => setManualOpen(true)} title="Abrir manual de uso"><BookOpen size={17} /><span>Manual de uso</span></button>
+            <button className="sidebar-project-toggle" onClick={() => setProjectToolsOpen((value) => !value)} aria-expanded={projectToolsOpen}>
+              <span>Ferramentas do projeto</span><div className="save-state"><i/><span>{saved ? 'Salvo' : 'Salvando…'}</span></div><ChevronDown size={14}/>
+            </button>
+            {projectToolsOpen && <div className="sidebar-project-actions">
+              <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
+              <button className="sidebar-export-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Imprimir e exportar</span></button>
+              <button className="sidebar-clear-button" onClick={() => { if (window.confirm('Limpar os elementos do canvas? As caixas de identificação e demanda serão mantidas.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] })); setSelectedId(null); } }}>
+                <RotateCcw size={17} /><span>Limpar</span>
+              </button>
+            </div>}
+          </div>
         </div>}
 
-        <div className="sidebar-bottom">
-          <button className="sidebar-help-button" onClick={() => setManualOpen(true)} title="Abrir manual de uso"><BookOpen size={17} /><span>Manual de uso</span></button>
-          <button className="sidebar-project-toggle" onClick={() => setProjectToolsOpen((value) => !value)} aria-expanded={projectToolsOpen}>
-            <span>Ferramentas do projeto</span><div className="save-state"><i/><span>{saved ? 'Salvo' : 'Salvando…'}</span></div><ChevronDown size={14}/>
-          </button>
-          {projectToolsOpen && <div className="sidebar-project-actions">
-            <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
-            <button className="sidebar-export-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Imprimir e exportar</span></button>
-            <button className="sidebar-clear-button" onClick={() => { if (window.confirm('Limpar os elementos do canvas? As caixas de identificação e demanda serão mantidas.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] })); setSelectedId(null); } }}>
-              <RotateCcw size={17} /><span>Limpar</span>
-            </button>
-          </div>}
-        </div>
+        {sidebarCollapsed && <div className="sidebar-compact-actions">
+          <button onClick={() => setManualOpen(true)} title="Manual de uso"><BookOpen size={18}/></button>
+          <button onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }} title="Imprimir e exportar"><Download size={18}/></button>
+        </div>}
       </aside>
 
       {/* Main */}
