@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Activity, AlertTriangle, BarChart3, BookOpen, Calculator, CheckCircle2, Copy, Download, FileImage, FileText, GitCompareArrows,
-  ImageDown, LayoutTemplate, Loader2, Map, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Plus,
+  ChevronDown, ImageDown, LayoutTemplate, Loader2, Map, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Plus,
   Pause, Play, RotateCcw, Route, Search, Sparkles, Square, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
 import {
@@ -1329,6 +1329,7 @@ const GROUP_LABELS: Record<string, string> = {
 function LibraryPanel({ onDragStart, accentColor }: { onDragStart: (item: LibraryItem, e: React.DragEvent) => void; accentColor: string }) {
   const [activeGroup, setActiveGroup] = useState('material');
   const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(true);
   const groups = ['material','logistica','kanban','informacao','operador','fluxo','anotacao'];
   const normalizedQuery = query.trim().toLocaleLowerCase('pt-BR');
   const visibleItems = LIBRARY.filter((item) => !['planning','timeline'].includes(item.kind))
@@ -1336,8 +1337,9 @@ function LibraryPanel({ onDragStart, accentColor }: { onDragStart: (item: Librar
       ? `${item.label} ${item.defaultLabel} ${GROUP_LABELS[item.group]}`.toLocaleLowerCase('pt-BR').includes(normalizedQuery)
       : item.group === activeGroup);
   return (
-    <div className="library-panel">
-      <div className="library-heading"><div><strong>Biblioteca</strong><span>Arraste para o mapa</span></div><b>{visibleItems.length}</b></div>
+    <div className={`library-panel ${open ? 'open' : 'collapsed'}`}>
+      <button className="library-heading" onClick={() => setOpen((value) => !value)} aria-expanded={open}><div><strong>Biblioteca</strong><span>{open ? 'Arraste para o mapa' : 'Clique para expandir'}</span></div><span className="library-heading-action"><b>{visibleItems.length}</b><ChevronDown size={14}/></span></button>
+      {open && <>
       <label className="library-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar símbolo" aria-label="Buscar símbolo" />{query && <button onClick={() => setQuery('')} aria-label="Limpar busca"><X size={12}/></button>}</label>
       {!normalizedQuery && <div className="library-tabs">
         {groups.map((group) => <button key={group} className={activeGroup === group ? 'active' : ''} onClick={() => setActiveGroup(group)}>{GROUP_LABELS[group]}<small>{LIBRARY.filter((item) => item.group === group && !['planning','timeline'].includes(item.kind)).length}</small></button>)}
@@ -1352,6 +1354,7 @@ function LibraryPanel({ onDragStart, accentColor }: { onDragStart: (item: Librar
         ))}
         {!visibleItems.length && <div className="library-empty"><Search size={20}/><strong>Nenhum símbolo</strong><span>Tente buscar por outro nome.</span></div>}
       </div>
+      </>}
     </div>
   );
 }
@@ -2429,6 +2432,7 @@ export default function App() {
   const [dragging, setDragging] = useState<Dragging | null>(null);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [projectToolsOpen, setProjectToolsOpen] = useState(false);
   const [saved, setSaved] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [demandOpen, setDemandOpen] = useState(false);
@@ -2949,13 +2953,17 @@ export default function App() {
         {!sidebarCollapsed && <LibraryPanel onDragStart={onLibDragStart} accentColor={DEFAULT_THEME_COLOR} />}
 
         <div className="sidebar-bottom">
-          <div className="sidebar-bottom-heading"><span>Projeto</span><div className="save-state"><i/><span>{saved ? 'Salvo' : 'Salvando…'}</span></div></div>
           <button className="sidebar-help-button" onClick={() => setManualOpen(true)} title="Abrir manual de uso"><BookOpen size={17} /><span>Manual de uso</span></button>
-          <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
-          <button className="sidebar-export-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Imprimir e exportar</span></button>
-          <button className="sidebar-clear-button" onClick={() => { if (window.confirm('Limpar os elementos do canvas? As caixas de identificação e demanda serão mantidas.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] })); setSelectedId(null); } }}>
-            <RotateCcw size={17} /><span>Limpar</span>
+          <button className="sidebar-project-toggle" onClick={() => setProjectToolsOpen((value) => !value)} aria-expanded={projectToolsOpen}>
+            <span>Ferramentas do projeto</span><div className="save-state"><i/><span>{saved ? 'Salvo' : 'Salvando…'}</span></div><ChevronDown size={14}/>
           </button>
+          {projectToolsOpen && <div className="sidebar-project-actions">
+            <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
+            <button className="sidebar-export-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Imprimir e exportar</span></button>
+            <button className="sidebar-clear-button" onClick={() => { if (window.confirm('Limpar os elementos do canvas? As caixas de identificação e demanda serão mantidas.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] })); setSelectedId(null); } }}>
+              <RotateCcw size={17} /><span>Limpar</span>
+            </button>
+          </div>}
         </div>
       </aside>
 
@@ -2965,10 +2973,23 @@ export default function App() {
           <div className="header-heading">
             <ScenarioPill kind={activeKind} />
             <h1>{activeKind==='current'?'Estado atual':activeFuture.name}</h1>
-            <p>{activeKind === 'current'
-              ? <>Tudo que for criado aqui avança automaticamente para o Estado futuro.</>
-              : <>Simule demanda, cargas e tempos sem alterar o Estado atual.</>}
-            </p>
+          </div>
+          <div className="simulation-summary">
+            <div><span>Demanda/dia</span><strong>{simulation.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un</strong></div>
+            <div><span>TAKT</span><strong>{(simulation.taktTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} min</strong></div>
+            <div title={simulation.bottleneck ? `Gargalo: ${simulation.bottleneck.label}` : undefined}><span>Capacidade/dia</span><strong>{simulation.bottleneckCapacity ? `${simulation.bottleneckCapacity.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un` : '—'}</strong></div>
+            <div className={!simulation.routeReady || simulation.invalidProcesses.length ? 'summary-warning' : simulation.overloadedProcesses.length ? 'summary-critical' : 'summary-ok'}>
+              {!simulation.routeReady || simulation.invalidProcesses.length || simulation.overloadedProcesses.length ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+              <span>{!simulation.rawMaterialEntry
+                ? 'Falta matéria-prima'
+                : !simulation.finalCustomer
+                  ? 'Falta cliente final'
+                  : simulation.invalidProcesses.length
+                ? `${simulation.invalidProcesses.length} sem T/C`
+                : simulation.overloadedProcesses.length
+                  ? `${simulation.overloadedProcesses.length} crítico(s)`
+                  : simulation.processElements.length ? 'Fluxo atende' : 'Sem processos'}</span>
+            </div>
           </div>
           <div className="header-actions">
             {activeKind === 'future' && <button className="future-sync-status" onClick={() => setComparisonOpen(true)} title="Comparar todos os cenários com o Estado atual">
@@ -2980,38 +3001,6 @@ export default function App() {
             <button className="primary-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}>
               <Download size={17}/>Exportar
             </button>
-          </div>
-          <div className="header-metrics-row">
-            <div className="simulation-summary">
-              <div><span>Demanda diária</span><strong>{simulation.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un</strong></div>
-              <div><span>TAKT</span><strong>{(simulation.taktTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} min</strong></div>
-              <div title={simulation.bottleneck ? `Gargalo: ${simulation.bottleneck.label}` : undefined}><span>Capacidade da linha</span><strong>{simulation.bottleneckCapacity ? `${simulation.bottleneckCapacity.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un/dia` : '—'}</strong></div>
-              <div className={!simulation.routeReady || simulation.invalidProcesses.length ? 'summary-warning' : simulation.overloadedProcesses.length ? 'summary-critical' : 'summary-ok'}>
-                {!simulation.routeReady || simulation.invalidProcesses.length || simulation.overloadedProcesses.length ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
-                <span>{!simulation.rawMaterialEntry
-                  ? 'Adicione matéria-prima'
-                  : !simulation.finalCustomer
-                    ? 'Adicione cliente final'
-                    : simulation.invalidProcesses.length
-                  ? `${simulation.invalidProcesses.length} processo(s) sem T/C`
-                  : simulation.overloadedProcesses.length
-                    ? `${simulation.overloadedProcesses.length} processo(s) crítico(s)`
-                    : simulation.processElements.length ? 'Processos atendem' : 'Adicione processos'}</span>
-              </div>
-            </div>
-            <div className="header-canvas-tools">
-              <label className="theme-color-button" title="Personalizar a cor de todo o MFV">
-                <Palette size={16}/><span>Cor do MFV</span>
-                <input type="color" value={canvas.themeColor} onChange={(event) => applyThemeColor(event.target.value)} aria-label="Cor do MFV" />
-                <i style={{ backgroundColor: canvas.themeColor }} />
-              </label>
-              <div className="zoom-controls">
-                <button onClick={() => setZoom(z => Math.max(0.15, z*.85))} title="Diminuir zoom"><ZoomOut size={15}/></button>
-                <span>{Math.round(zoom*100)}%</span>
-                <button onClick={() => setZoom(z => Math.min(4, z*1.15))} title="Aumentar zoom"><ZoomIn size={15}/></button>
-                <button onClick={() => { setZoom(1); setPan({x:80,y:80}); }} title="Restaurar visualização"><Minus size={13}/></button>
-              </div>
-            </div>
           </div>
         </header>
 
@@ -3075,6 +3064,20 @@ export default function App() {
             <button className="danger" onClick={deleteScenario} title="Excluir cenário"><Trash2 size={15}/><span>Excluir</span></button>
           </div>
         </div>}
+
+        <div className="canvas-floating-tools no-print">
+          <label className="theme-color-button" title="Personalizar a cor de todo o MFV">
+            <Palette size={16}/><span>Cor</span>
+            <input type="color" value={canvas.themeColor} onChange={(event) => applyThemeColor(event.target.value)} aria-label="Cor do MFV" />
+            <i style={{ backgroundColor: canvas.themeColor }} />
+          </label>
+          <div className="zoom-controls">
+            <button onClick={() => setZoom(z => Math.max(0.15, z*.85))} title="Diminuir zoom"><ZoomOut size={15}/></button>
+            <span>{Math.round(zoom*100)}%</span>
+            <button onClick={() => setZoom(z => Math.min(4, z*1.15))} title="Aumentar zoom"><ZoomIn size={15}/></button>
+            <button onClick={() => { setZoom(1); setPan({x:80,y:80}); }} title="Restaurar visualização"><Minus size={13}/></button>
+          </div>
+        </div>
 
         {canvas.elements.every((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)) && canvas.arrows.length===0 && (
           <div className="canvas-empty-hint">
