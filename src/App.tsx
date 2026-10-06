@@ -2433,6 +2433,7 @@ export default function App() {
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [projectToolsOpen, setProjectToolsOpen] = useState(false);
+  const [leanPanelOpen, setLeanPanelOpen] = useState(true);
   const [saved, setSaved] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [demandOpen, setDemandOpen] = useState(false);
@@ -2950,7 +2951,39 @@ export default function App() {
           </button>
         </nav>
 
-        {!sidebarCollapsed && <LibraryPanel onDragStart={onLibDragStart} accentColor={DEFAULT_THEME_COLOR} />}
+        {!sidebarCollapsed && <div className="sidebar-workspace">
+          <LibraryPanel onDragStart={onLibDragStart} accentColor={DEFAULT_THEME_COLOR} />
+
+          <section className={`sidebar-lean-panel ${simulation.leanWarnings.length ? 'warning' : 'ready'} ${leanPanelOpen ? 'open' : 'collapsed'}`}>
+            <button className="sidebar-panel-heading" onClick={() => setLeanPanelOpen((value) => !value)} aria-expanded={leanPanelOpen}>
+              <span className="sidebar-panel-title"><Route size={15}/><span><strong>Controle Lean</strong><small>{simulation.leanWarnings.length ? `${simulation.leanWarnings.length} ponto(s) de atenção` : 'Fluxo configurado'}</small></span></span>
+              <span className="sidebar-panel-status">{leanActionCount}<ChevronDown size={14}/></span>
+            </button>
+            {leanPanelOpen && <div className="sidebar-lean-content">
+              <div className="sidebar-lean-message" title={simulation.leanWarnings.join(' ')}>
+                {simulation.leanWarnings.length
+                  ? <><AlertTriangle size={14}/><span>{simulation.leanWarnings[0]}{simulation.leanWarnings.length > 1 ? ` +${simulation.leanWarnings.length - 1}` : ''}</span></>
+                  : <><CheckCircle2 size={14}/><span>Fluxo puxado configurado e limitado.</span></>}
+              </div>
+              <dl className="sidebar-lean-facts">
+                <div><dt>Marcapasso</dt><dd>{simulation.pacemaker?.label || 'Não definido'}</dd></div>
+                <div><dt>Pull</dt><dd>{simulation.pullSystemActive ? `Ativo · WIP ${simulation.pullWipLimit}` : 'Incompleto'}</dd></div>
+                <div><dt>Kanban</dt><dd>{simulation.kanbanCardTotal} cartão(ões) · {simulation.kanbanAuthorizedUnits} un</dd></div>
+                <div><dt>Heijunka</dt><dd>{simulation.heijunkaBoxes.length && simulation.pacemaker ? `Ativo · ${simulation.leveledSequence.length} slots` : 'Inativo'}</dd></div>
+                <div><dt>Pitch</dt><dd>{simulation.pitchTimeSec > 0 ? `${(simulation.pitchTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min` : '—'}</dd></div>
+                <div><dt>EPEI</dt><dd>{simulation.epeiDays === Infinity ? 'Sem capacidade' : simulation.epeiDays > 0 ? `${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dia(s)` : '—'}</dd></div>
+              </dl>
+              <div className="sidebar-lean-actions">
+                <button className="lean-assistant-button" onClick={() => setLeanAssistantOpen(true)}>
+                  <BookOpen size={14}/><span>Assistente Lean</span><b>{leanActionCount}</b>
+                </button>
+                {activeKind === 'future' && <button className="stress-test-button" onClick={() => setStressTestOpen(true)}>
+                  <Activity size={14}/><span>Teste de estresse</span>
+                </button>}
+              </div>
+            </div>}
+          </section>
+        </div>}
 
         <div className="sidebar-bottom">
           <button className="sidebar-help-button" onClick={() => setManualOpen(true)} title="Abrir manual de uso"><BookOpen size={17} /><span>Manual de uso</span></button>
@@ -3003,29 +3036,6 @@ export default function App() {
             </button>
           </div>
         </header>
-
-        <div className={`lean-control-strip no-print ${simulation.leanWarnings.length ? 'warning' : 'ready'}`}>
-          <div className="lean-control-title"><Route size={15}/><strong>Controle Lean</strong></div>
-          <div className="lean-control-facts">
-            <span>Marcapasso <b>{simulation.pacemaker?.label || 'não definido'}</b></span>
-            <span>Pull <b>{simulation.pullSystemActive ? `ativo · WIP ${simulation.pullWipLimit}` : 'incompleto'}</b></span>
-            <span>Kanban <b>{simulation.kanbanCardTotal} cartão(ões) · {simulation.kanbanAuthorizedUnits} un</b></span>
-            <span>Heijunka <b>{simulation.heijunkaBoxes.length && simulation.pacemaker ? `ativo · ${simulation.leveledSequence.length} slots` : 'inativo'}</b></span>
-            <span>Pitch <b>{simulation.pitchTimeSec > 0 ? `${(simulation.pitchTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min` : '—'}</b></span>
-            <span>EPEI <b>{simulation.epeiDays === Infinity ? 'sem capacidade' : simulation.epeiDays > 0 ? `${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dia(s)` : '—'}</b></span>
-          </div>
-          <div className="lean-control-message" title={simulation.leanWarnings.join(' ')}>
-            {simulation.leanWarnings.length
-              ? <><AlertTriangle size={13}/><span>{simulation.leanWarnings[0]}{simulation.leanWarnings.length > 1 ? ` +${simulation.leanWarnings.length - 1}` : ''}</span></>
-              : <><CheckCircle2 size={13}/><span>Fluxo puxado configurado e limitado.</span></>}
-          </div>
-          <button className="lean-assistant-button" onClick={() => setLeanAssistantOpen(true)}>
-            <BookOpen size={14}/><span>Assistente Lean</span><b>{leanActionCount}</b>
-          </button>
-          {activeKind === 'future' && <button className="stress-test-button" onClick={() => setStressTestOpen(true)}>
-            <Activity size={14}/><span>Teste de estresse</span>
-          </button>}
-        </div>
 
         {(liveRunning || liveElapsedSec > 0) && <div className="live-simulation-bar no-print">
           <div className="live-playback-controls">
