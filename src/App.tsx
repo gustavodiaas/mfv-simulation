@@ -2308,22 +2308,82 @@ function ComparisonModal({ workspace, onSelect, onClose }: { workspace: CanvasWo
   const rows = [
     { id: '', name: 'Estado atual', kind: 'current' as const, canvas: workspace.current },
     ...workspace.futures.map((variant) => ({ id: variant.id, name: variant.name, kind: 'future' as const, canvas: variant.canvas })),
-  ].map((row) => ({ ...row, result: calculateCanvasSimulation(row.canvas) }));
+  ].map((row) => {
+    const result = calculateCanvasSimulation(row.canvas);
+    const wip = result.inventoryElements
+      .filter((element) => element.kind !== 'waiting-time')
+      .reduce((sum, element) => sum + Math.max(0, Number(element.data.qty) || 0), 0);
+    const operators = result.processElements.reduce((sum, element) => sum + Math.max(0, Number(element.data.op) || 0), 0);
+    const qualityYield = result.processElements.reduce((yieldRate, element) => {
+      const quality = Math.min(100, Math.max(0, Number(element.data.qualidade) || 100)) / 100;
+      return yieldRate * quality;
+    }, 1) * 100;
+    const maxLoad = result.processMetrics.reduce((maximum, metric) => Math.max(maximum, metric.loadPercent), 0);
+    const totalLeadTimeDays = result.leadTimeDays + (row.canvas.assumptions.availableMinutesPerDay > 0
+      ? result.processingTimeMin / row.canvas.assumptions.availableMinutesPerDay
+      : 0);
+    const capacityMargin = result.dailyDemand > 0
+      ? (result.bottleneckCapacity / result.dailyDemand - 1) * 100
+      : 0;
+    return { ...row, result, metrics: { wip, operators, qualityYield, maxLoad, totalLeadTimeDays, capacityMargin } };
+  });
+  const baseline = rows[0];
+  const selected = rows.find((row) => row.id === workspace.activeFutureId) ?? rows[1] ?? rows[0];
   useEffect(() => {
     const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
   const number = (value: number, digits = 1) => Number.isFinite(value) ? value.toLocaleString('pt-BR', { maximumFractionDigits: digits }) : '—';
+  const delta = (value: number, current: number, direction: 'higher' | 'lower' | 'neutral' = 'neutral', suffix = '', digits = 1) => {
+    const difference = value - current;
+    const tolerance = Math.max(0.001, Math.abs(current) * 0.0001);
+    const state = Math.abs(difference) <= tolerance
+      ? 'neutral'
+      : direction === 'neutral'
+        ? 'changed'
+        : (direction === 'higher' ? difference > 0 : difference < 0) ? 'good' : 'bad';
+    const sign = difference > tolerance ? '+' : '';
+    return { state, label: `${sign}${number(difference, digits)}${suffix}` };
+  };
+  const selectedCards = [
+    { label: 'Capacidade diária', value: `${number(selected.result.bottleneckCapacity)} un`, change: delta(selected.result.bottleneckCapacity, baseline.result.bottleneckCapacity, 'higher', ' un') },
+    { label: 'Tempo de atravessamento', value: `${number(selected.metrics.totalLeadTimeDays, 2)} dias`, change: delta(selected.metrics.totalLeadTimeDays, baseline.metrics.totalLeadTimeDays, 'lower', ' d', 2) },
+    { label: 'WIP total', value: `${number(selected.metrics.wip)} un`, change: delta(selected.metrics.wip, baseline.metrics.wip, 'lower', ' un') },
+    { label: 'Operadores informados', value: number(selected.metrics.operators, 0), change: delta(selected.metrics.operators, baseline.metrics.operators, 'neutral', '', 0) },
+    { label: 'Qualidade acumulada', value: `${number(selected.metrics.qualityYield, 1)}%`, change: delta(selected.metrics.qualityYield, baseline.metrics.qualityYield, 'higher', ' p.p.') },
+    { label: 'Carga máxima', value: `${number(selected.metrics.maxLoad, 0)}%`, change: delta(selected.metrics.maxLoad, baseline.metrics.maxLoad, 'lower', ' p.p.', 0) },
+  ];
+  const selectedStatus = selected.result.invalidProcesses.length ? 'warning' : selected.result.overloadedProcesses.length ? 'critical' : 'ok';
   return createPortal(
     <div className="editor-overlay" role="dialog" aria-modal="true" aria-labelledby="comparison-title">
       <button className="editor-backdrop" onClick={onClose} aria-label="Fechar comparação" />
       <section className="editor-window comparison-modal">
-        <header><div><h2 id="comparison-title">Comparação de cenários</h2><p>Veja onde cada hipótese atende a demanda e qual processo limita o fluxo.</p></div><button className="icon-button" onClick={onClose}><X size={20}/></button></header>
-        <div className="comparison-table-wrap"><table className="comparison-table"><thead><tr><th>Cenário</th><th>Demanda/dia</th><th>Capacidade/dia</th><th>TAKT</th><th>Lead time</th><th>Gargalo</th><th>Situação</th></tr></thead><tbody>
+        <header><div><h2 id="comparison-title">Estado Atual × Estados Futuros</h2><p>Compare resultado, desperdício e capacidade antes de escolher o cenário que será implantado.</p></div><button className="icon-button" onClick={onClose}><X size={20}/></button></header>
+        <div className={`comparison-hero ${selectedStatus}`}>
+          <div className="comparison-hero-title"><span>Cenário selecionado</span><strong>{selected.name}</strong><small>comparado ao Estado atual</small></div>
+          <div className="comparison-hero-status">
+            <strong>{selected.result.invalidProcesses.length ? 'Dados incompletos' : selected.result.overloadedProcesses.length ? 'Não atende à demanda' : 'Atende à demanda'}</strong>
+            <span>Margem de capacidade {selected.metrics.capacityMargin >= 0 ? '+' : ''}{number(selected.metrics.capacityMargin, 1)}%</span>
+          </div>
+        </div>
+        <div className="comparison-delta-grid">
+          {selectedCards.map((card) => <div key={card.label}>
+            <span>{card.label}</span><strong>{card.value}</strong><small className={card.change.state}>{card.change.label} vs. atual</small>
+          </div>)}
+        </div>
+        <div className="comparison-table-heading"><div><strong>Todos os cenários</strong><span>Os valores menores de WIP, atravessamento e carga representam melhoria; operadores são exibidos sem julgamento automático.</span></div></div>
+        <div className="comparison-table-wrap"><table className="comparison-table"><thead><tr><th>Cenário</th><th>Demanda/dia</th><th>Capacidade/dia</th><th>Margem</th><th>Atravessamento</th><th>WIP</th><th>Operadores</th><th>Qualidade</th><th>Carga máx.</th><th>Restrição</th><th>Situação</th></tr></thead><tbody>
           {rows.map((row) => <tr key={row.id || 'current'} className={row.id === workspace.activeFutureId ? 'active' : ''}>
             <td><span className={`scenario-dot ${row.kind}`}/><strong>{row.name}</strong>{row.id && <button onClick={() => { onSelect(row.id); onClose(); }}>Abrir</button>}</td>
-            <td>{number(row.result.dailyDemand, 2)} un</td><td>{number(row.result.bottleneckCapacity)} un</td><td>{number(row.result.taktTimeSec / 60, 2)} min</td><td>{number(row.result.leadTimeDays, 2)} dias</td><td>{row.result.bottleneck?.label || '—'}</td>
+            <td>{number(row.result.dailyDemand, 2)} un</td><td>{number(row.result.bottleneckCapacity)} un</td>
+            <td className={row.metrics.capacityMargin < 0 ? 'metric-bad' : 'metric-good'}>{row.metrics.capacityMargin >= 0 ? '+' : ''}{number(row.metrics.capacityMargin)}%</td>
+            <td>{number(row.metrics.totalLeadTimeDays, 2)} d{row.kind === 'future' && <small className={delta(row.metrics.totalLeadTimeDays, baseline.metrics.totalLeadTimeDays, 'lower').state}>{delta(row.metrics.totalLeadTimeDays, baseline.metrics.totalLeadTimeDays, 'lower', ' d').label}</small>}</td>
+            <td>{number(row.metrics.wip)} un{row.kind === 'future' && <small className={delta(row.metrics.wip, baseline.metrics.wip, 'lower').state}>{delta(row.metrics.wip, baseline.metrics.wip, 'lower', ' un').label}</small>}</td>
+            <td>{number(row.metrics.operators, 0)}{row.kind === 'future' && <small className="changed">{delta(row.metrics.operators, baseline.metrics.operators, 'neutral', '', 0).label}</small>}</td>
+            <td>{number(row.metrics.qualityYield)}%{row.kind === 'future' && <small className={delta(row.metrics.qualityYield, baseline.metrics.qualityYield, 'higher').state}>{delta(row.metrics.qualityYield, baseline.metrics.qualityYield, 'higher', ' p.p.').label}</small>}</td>
+            <td>{number(row.metrics.maxLoad, 0)}%{row.kind === 'future' && <small className={delta(row.metrics.maxLoad, baseline.metrics.maxLoad, 'lower').state}>{delta(row.metrics.maxLoad, baseline.metrics.maxLoad, 'lower', ' p.p.', 0).label}</small>}</td>
+            <td>{row.result.bottleneck?.label || '—'}</td>
             <td><span className={`comparison-status ${row.result.invalidProcesses.length ? 'warning' : row.result.overloadedProcesses.length ? 'critical' : 'ok'}`}>{row.result.invalidProcesses.length ? 'Dados incompletos' : row.result.overloadedProcesses.length ? `${row.result.overloadedProcesses.length} quebra(m)` : 'Atende'}</span></td>
           </tr>)}
         </tbody></table></div>
