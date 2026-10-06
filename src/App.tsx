@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import {
   ARROW_KINDS, DEFAULT_TRUCK_COLOR, LIBRARY, makeId,
-  type CanvasArrow, type CanvasElement, type CanvasState,
+  type ArrowAnchor, type CanvasArrow, type CanvasElement, type CanvasState,
   type ElementKind, type LibraryItem, type ScenarioAssumptions,
 } from './canvas-types';
 import {
@@ -298,6 +298,8 @@ function mergeForwardElement(previous: CanvasElement, current: CanvasElement, fu
 }
 
 function mergeForwardArrow(previous: CanvasArrow, current: CanvasArrow, future: CanvasArrow): CanvasArrow {
+  const sameAnchor = (left?: ArrowAnchor, right?: ArrowAnchor) =>
+    left?.elementId === right?.elementId && left?.x === right?.x && left?.y === right?.y;
   return {
     ...future,
     kind: future.kind === previous.kind ? current.kind : future.kind,
@@ -306,6 +308,8 @@ function mergeForwardArrow(previous: CanvasArrow, current: CanvasArrow, future: 
     x2: future.x2 === previous.x2 ? current.x2 : future.x2,
     y2: future.y2 === previous.y2 ? current.y2 : future.y2,
     label: future.label === previous.label ? current.label : future.label,
+    startAnchor: sameAnchor(future.startAnchor, previous.startAnchor) ? current.startAnchor : future.startAnchor,
+    endAnchor: sameAnchor(future.endAnchor, previous.endAnchor) ? current.endAnchor : future.endAnchor,
   };
 }
 
@@ -680,8 +684,8 @@ function LibraryPanel({ onDragStart, accentColor }: { onDragStart: (item: Librar
 
 // ─── Setas SVG ────────────────────────────────────────────────────────────────
 
-function ArrowShape({ arrow, selected, onClick, accentColor }: {
-  arrow: CanvasArrow; selected: boolean; onClick: (e: React.MouseEvent) => void; accentColor: string;
+function ArrowShape({ arrow, selected, accentColor }: {
+  arrow: CanvasArrow; selected: boolean; accentColor: string;
 }) {
   const dx = arrow.x2 - arrow.x1; const dy = arrow.y2 - arrow.y1;
   const len = Math.sqrt(dx*dx + dy*dy);
@@ -703,8 +707,7 @@ function ArrowShape({ arrow, selected, onClick, accentColor }: {
   const id = arrow.id;
 
   return (
-    <g onClick={onClick} style={{ cursor: 'pointer' }}>
-      <line x1={arrow.x1} y1={arrow.y1} x2={arrow.x2} y2={arrow.y2} stroke="transparent" strokeWidth={18} />
+    <g pointerEvents="none">
       <defs>
         <marker id={`m-${id}`} markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
           <polygon points="0,0 9,3.5 0,7" fill={color} />
@@ -734,12 +737,29 @@ function ArrowShape({ arrow, selected, onClick, accentColor }: {
         </>
       )}
       {arrow.label && <text x={mx} y={my-12} textAnchor="middle" fontSize={8} fontFamily="Arial" fill="#444">{arrow.label}</text>}
-      {selected && <>
-        <circle cx={arrow.x1} cy={arrow.y1} r={7} fill="white" stroke="#0071e3" strokeWidth={2} style={{cursor:'move'}} />
-        <circle cx={arrow.x2} cy={arrow.y2} r={7} fill="white" stroke="#0071e3" strokeWidth={2} style={{cursor:'move'}} />
-      </>}
     </g>
   );
+}
+
+function ArrowInteractionShape({ arrow, onMouseDown, onClick, onDoubleClick }: {
+  arrow: CanvasArrow;
+  onMouseDown: (event: React.MouseEvent) => void;
+  onClick: (event: React.MouseEvent) => void;
+  onDoubleClick: (event: React.MouseEvent) => void;
+}) {
+  const dx = arrow.x2 - arrow.x1;
+  const dy = arrow.y2 - arrow.y1;
+  const mx = (arrow.x1 + arrow.x2) / 2;
+  const my = (arrow.y1 + arrow.y2) / 2;
+  const path = arrow.kind === 'arrow-pull'
+    ? `M${arrow.x1},${arrow.y1} Q${mx-dy*.25},${my+dx*.25} ${arrow.x2},${arrow.y2}`
+    : arrow.kind === 'arrow-schedule'
+      ? `M${arrow.x1},${arrow.y1} Q${mx},${Math.min(arrow.y1, arrow.y2)-90} ${arrow.x2},${arrow.y2}`
+      : ['arrow-push', 'arrow-physical', 'arrow-shipment'].includes(arrow.kind)
+        ? `M${arrow.x1},${arrow.y1} L${arrow.x2},${arrow.y2}`
+        : `M${arrow.x1},${arrow.y1} Q${mx},${my-30} ${arrow.x2},${arrow.y2}`;
+  return <path d={path} fill="none" stroke="transparent" strokeWidth={18} pointerEvents="stroke"
+    style={{ cursor: 'move' }} onMouseDown={onMouseDown} onClick={onClick} onDoubleClick={onDoubleClick} />;
 }
 
 function pointAlongRoute(points: { x: number; y: number }[], progress: number) {
@@ -1255,10 +1275,72 @@ function ArrowPopover({ arrow, onUpdate, onDelete, onClose }: {
 
 type Dragging =
   | { type: 'element'; id: string; startX: number; startY: number; origX: number; origY: number }
+  | { type: 'arrow'; id: string; startX: number; startY: number; x1: number; y1: number; x2: number; y2: number }
   | { type: 'arrow-point'; id: string; point: 'start' | 'end' }
   | { type: 'pan'; startX: number; startY: number; origX: number; origY: number };
 
 type AlignmentGuides = { x?: number; y?: number };
+
+const ARROW_CONNECT_DISTANCE = 18;
+
+function findArrowAnchor(x: number, y: number, elements: CanvasElement[]) {
+  let best: { x: number; y: number; anchor: ArrowAnchor; distance: number } | null = null;
+  for (const element of elements) {
+    const size = elementDimensions(element);
+    const left = element.x;
+    const top = element.y;
+    const right = left + size.width;
+    const bottom = top + size.height;
+    if (x < left - ARROW_CONNECT_DISTANCE || x > right + ARROW_CONNECT_DISTANCE
+      || y < top - ARROW_CONNECT_DISTANCE || y > bottom + ARROW_CONNECT_DISTANCE) continue;
+
+    const localX = Math.max(0, Math.min(size.width, x - left));
+    const localY = Math.max(0, Math.min(size.height, y - top));
+    const sides = [
+      { x: 0, y: localY, distance: Math.abs(x - left) },
+      { x: size.width, y: localY, distance: Math.abs(x - right) },
+      { x: localX, y: 0, distance: Math.abs(y - top) },
+      { x: localX, y: size.height, distance: Math.abs(y - bottom) },
+    ];
+    const nearest = sides.reduce((choice, side) => side.distance < choice.distance ? side : choice);
+    const snappedX = left + nearest.x;
+    const snappedY = top + nearest.y;
+    const distance = Math.hypot(x - snappedX, y - snappedY);
+    if (distance <= ARROW_CONNECT_DISTANCE || (x >= left && x <= right && y >= top && y <= bottom)) {
+      if (!best || distance < best.distance) {
+        best = {
+          x: snappedX,
+          y: snappedY,
+          distance,
+          anchor: { elementId: element.id, x: nearest.x / size.width, y: nearest.y / size.height },
+        };
+      }
+    }
+  }
+  return best;
+}
+
+function syncAnchoredArrows(arrows: CanvasArrow[], elements: CanvasElement[]) {
+  const positions = new globalThis.Map(elements.map((element) => {
+    const size = elementDimensions(element);
+    return [element.id, { element, size }];
+  }));
+  return arrows.map((arrow) => {
+    const start = arrow.startAnchor ? positions.get(arrow.startAnchor.elementId) : undefined;
+    const end = arrow.endAnchor ? positions.get(arrow.endAnchor.elementId) : undefined;
+    return {
+      ...arrow,
+      ...(start ? {
+        x1: start.element.x + start.size.width * arrow.startAnchor!.x,
+        y1: start.element.y + start.size.height * arrow.startAnchor!.y,
+      } : {}),
+      ...(end ? {
+        x2: end.element.x + end.size.width * arrow.endAnchor!.x,
+        y2: end.element.y + end.size.height * arrow.endAnchor!.y,
+      } : {}),
+    };
+  });
+}
 
 function snapElementPosition(target: CanvasElement, x: number, y: number, elements: CanvasElement[]) {
   const { width, height } = elementDimensions(target);
@@ -1529,7 +1611,20 @@ export default function App() {
 
   const onHandleMouseDown = (e: React.MouseEvent, id: string, point: 'start'|'end') => {
     e.stopPropagation();
+    setSelectedId(id);
+    dragMovedRef.current = false;
     setDragging({ type: 'arrow-point', id, point });
+  };
+
+  const onArrowMouseDown = (e: React.MouseEvent, arrow: CanvasArrow) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    setSelectedId(arrow.id);
+    dragMovedRef.current = false;
+    setDragging({
+      type: 'arrow', id: arrow.id, startX: e.clientX, startY: e.clientY,
+      x1: arrow.x1, y1: arrow.y1, x2: arrow.x2, y2: arrow.y2,
+    });
   };
 
   useEffect(() => {
@@ -1546,15 +1641,45 @@ export default function App() {
           if (!target) return p;
           const snapped = snapElementPosition(target, dragging.origX + dx, dragging.origY + dy, p.elements);
           setAlignmentGuides(snapped.guides);
-          return { ...p, elements: p.elements.map((el) =>
-            el.id === dragging.id ? { ...el, x: snapped.x, y: snapped.y } : el) };
+          const elements = p.elements.map((el) =>
+            el.id === dragging.id ? { ...el, x: snapped.x, y: snapped.y } : el);
+          return { ...p, elements, arrows: syncAnchoredArrows(p.arrows, elements) };
         });
+      } else if (dragging.type === 'arrow') {
+        const dx = (e.clientX - dragging.startX) / zoom;
+        const dy = (e.clientY - dragging.startY) / zoom;
+        if (Math.abs(e.clientX - dragging.startX) > 4 || Math.abs(e.clientY - dragging.startY) > 4) dragMovedRef.current = true;
+        setCanvas((p) => ({ ...p, arrows: p.arrows.map((arrow) => arrow.id === dragging.id ? {
+          ...arrow,
+          x1: dragging.x1 + dx,
+          y1: dragging.y1 + dy,
+          x2: dragging.x2 + dx,
+          y2: dragging.y2 + dy,
+          startAnchor: undefined,
+          endAnchor: undefined,
+        } : arrow) }));
       } else if (dragging.type === 'arrow-point') {
         const rect = svgRef.current?.getBoundingClientRect();
         if (!rect) return;
         const { x, y } = toCanvas(e.clientX - rect.left, e.clientY - rect.top);
-        setCanvas((p) => ({ ...p, arrows: p.arrows.map((a) =>
-          a.id !== dragging.id ? a : dragging.point === 'start' ? { ...a, x1:x, y1:y } : { ...a, x2:x, y2:y }) }));
+        setCanvas((p) => {
+          const connection = findArrowAnchor(x, y, p.elements);
+          return { ...p, arrows: p.arrows.map((a) => {
+            if (a.id !== dragging.id) return a;
+            if (dragging.point === 'start') return {
+              ...a,
+              x1: connection?.x ?? x,
+              y1: connection?.y ?? y,
+              startAnchor: connection?.anchor,
+            };
+            return {
+              ...a,
+              x2: connection?.x ?? x,
+              y2: connection?.y ?? y,
+              endAnchor: connection?.anchor,
+            };
+          }) };
+        });
       }
     };
     const onUp = () => { setDragging(null); setAlignmentGuides({}); };
@@ -1581,7 +1706,15 @@ export default function App() {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'SELECT') return;
       if ([FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(selectedId)) return;
-      setCanvas((p) => ({ ...p, elements: p.elements.filter((el) => el.id !== selectedId), arrows: p.arrows.filter((a) => a.id !== selectedId) }));
+      setCanvas((p) => ({
+        ...p,
+        elements: p.elements.filter((el) => el.id !== selectedId),
+        arrows: p.arrows.filter((arrow) => arrow.id !== selectedId).map((arrow) => ({
+          ...arrow,
+          startAnchor: arrow.startAnchor?.elementId === selectedId ? undefined : arrow.startAnchor,
+          endAnchor: arrow.endAnchor?.elementId === selectedId ? undefined : arrow.endAnchor,
+        })),
+      }));
       setSelectedId(null);
     };
     window.addEventListener('keydown', h);
@@ -1589,12 +1722,23 @@ export default function App() {
   }, [selectedId, setCanvas]);
 
   const updateEl = (id: string, patch: Partial<CanvasElement>) => {
-    setCanvas((p) => ({ ...p, elements: p.elements.map((el) => el.id===id ? { ...el, ...patch } : el) }));
+    setCanvas((p) => {
+      const elements = p.elements.map((el) => el.id===id ? { ...el, ...patch } : el);
+      return { ...p, elements, arrows: syncAnchoredArrows(p.arrows, elements) };
+    });
     if (editingEl?.id === id) setEditingEl((p) => p ? { ...p, ...patch } : p);
   };
   const deleteEl = (id: string) => {
     if ([FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(id)) return;
-    setCanvas((p) => ({ ...p, elements: p.elements.filter((el) => el.id!==id), arrows: p.arrows.filter((a) => a.id!==id) }));
+    setCanvas((p) => ({
+      ...p,
+      elements: p.elements.filter((el) => el.id!==id),
+      arrows: p.arrows.map((arrow) => ({
+        ...arrow,
+        startAnchor: arrow.startAnchor?.elementId === id ? undefined : arrow.startAnchor,
+        endAnchor: arrow.endAnchor?.elementId === id ? undefined : arrow.endAnchor,
+      })),
+    }));
     setEditingEl(null); setSelectedId(null);
   };
 
@@ -1881,15 +2025,7 @@ export default function App() {
             )}
             {canvas.arrows.map((arrow) => (
               <ArrowShape key={arrow.id} arrow={arrow} selected={selectedId===arrow.id} accentColor={canvas.themeColor}
-                onClick={(e) => { e.stopPropagation(); setSelectedId(arrow.id); if (e.detail===2) setEditingArrow(arrow); }} />
-            ))}
-            {canvas.arrows.filter(a => a.id===selectedId).map((arrow) => (
-              <g key={`h-${arrow.id}`} data-export-ui>
-                <circle cx={arrow.x1} cy={arrow.y1} r={7} fill="white" stroke="#0071e3" strokeWidth={2} style={{cursor:'move'}}
-                  onMouseDown={(e) => { e.stopPropagation(); onHandleMouseDown(e, arrow.id, 'start'); }} />
-                <circle cx={arrow.x2} cy={arrow.y2} r={7} fill="white" stroke="#0071e3" strokeWidth={2} style={{cursor:'move'}}
-                  onMouseDown={(e) => { e.stopPropagation(); onHandleMouseDown(e, arrow.id, 'end'); }} />
-              </g>
+              />
             ))}
             {canvas.elements.filter((el) => el.kind !== 'timeline').map((el) => (
               <g key={el.id} transform={`translate(${el.x},${el.y})`}
@@ -1904,6 +2040,28 @@ export default function App() {
                 {renderElement(el, selectedId===el.id, () => openElementEditor(el), simulation, canvas.assumptions.availableMinutesPerDay, canvas.themeColor)}
               </g>
             ))}
+            <g data-export-ui>
+              {canvas.arrows.map((arrow) => (
+                <ArrowInteractionShape key={`interaction-${arrow.id}`} arrow={arrow}
+                  onMouseDown={(event) => onArrowMouseDown(event, arrow)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedId(arrow.id);
+                  }}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation();
+                    if (!dragMovedRef.current) setEditingArrow(arrow);
+                  }} />
+              ))}
+              {canvas.arrows.filter((arrow) => arrow.id===selectedId).map((arrow) => (
+                <g key={`h-${arrow.id}`}>
+                  <circle cx={arrow.x1} cy={arrow.y1} r={8} fill="white" stroke="#0071e3" strokeWidth={2} style={{cursor:'crosshair'}}
+                    onMouseDown={(event) => onHandleMouseDown(event, arrow.id, 'start')} />
+                  <circle cx={arrow.x2} cy={arrow.y2} r={8} fill="white" stroke="#0071e3" strokeWidth={2} style={{cursor:'crosshair'}}
+                    onMouseDown={(event) => onHandleMouseDown(event, arrow.id, 'end')} />
+                </g>
+              ))}
+            </g>
             <LiveFlowOverlay canvas={canvas} simulation={simulation} elapsedSec={liveElapsedSec} />
             {automaticTimelinePosition && (
               <g transform={`translate(${automaticTimelinePosition.x},${automaticTimelinePosition.y})`}>

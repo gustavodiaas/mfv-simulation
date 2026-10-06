@@ -71,12 +71,20 @@ export interface CanvasElement {
   data: Record<string, string | number>;
 }
 
+export interface ArrowAnchor {
+  elementId: string;
+  x: number;
+  y: number;
+}
+
 export interface CanvasArrow {
   id: string;
   kind: 'arrow-push' | 'arrow-pull' | 'arrow-info-manual' | 'arrow-info-electronic' | 'arrow-adjustment' | 'arrow-schedule' | 'arrow-shipment' | 'arrow-physical';
   x1: number; y1: number;
   x2: number; y2: number;
   label?: string;
+  startAnchor?: ArrowAnchor;
+  endAnchor?: ArrowAnchor;
 }
 
 export interface ScenarioAssumptions {
