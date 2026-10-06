@@ -15,6 +15,7 @@ Aplicação web para criar, comparar e imprimir cenários de Mapeamento de Fluxo
 - Salvamento local no navegador
 - Relatório preparado para impressão ou PDF
 - Testes automatizados do motor de estresse e da sincronização unilateral entre Estado Atual e Estado Futuro
+- Manual integrado em oito passos, exibido na primeira visita e sempre acessível pela sidebar
 
 ## Desenvolvimento
 

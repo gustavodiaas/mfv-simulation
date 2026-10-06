@@ -33,6 +33,7 @@ const PREVIOUS_STORAGE_KEY = 'mfv-canvas:v4';
 const OLDER_STORAGE_KEY = 'mfv-canvas:v3';
 const OLDEST_STORAGE_KEY = 'mfv-canvas:v2';
 const LEGACY_STORAGE_KEY = 'mfv-simulation:v2';
+const MANUAL_SEEN_KEY = 'mfv-manual-seen:v1';
 const FIXED_PLANNING_ID = '__mfv-demand-planning__';
 const FIXED_IDENTIFICATION_ID = '__mfv-identification__';
 const GRID_SIZE = 20;
@@ -2435,6 +2436,7 @@ export default function App() {
   const [comparisonOpen, setComparisonOpen] = useState(false);
   const [leanAssistantOpen, setLeanAssistantOpen] = useState(false);
   const [stressTestOpen, setStressTestOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(() => localStorage.getItem(MANUAL_SEEN_KEY) !== 'true');
   const [appliedLeanFixes, setAppliedLeanFixes] = useState<AppliedLeanFix[]>([]);
   const [leanUndoStack, setLeanUndoStack] = useState<CanvasState[]>([]);
   const [liveRunning, setLiveRunning] = useState(false);
@@ -2914,6 +2916,10 @@ export default function App() {
     setLiveRunning(false);
     setLiveElapsedSec(0);
   };
+  const closeManual = () => {
+    localStorage.setItem(MANUAL_SEEN_KEY, 'true');
+    setManualOpen(false);
+  };
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -2944,6 +2950,7 @@ export default function App() {
 
         <div className="sidebar-bottom">
           <div className="sidebar-bottom-heading"><span>Projeto</span><div className="save-state"><i/><span>{saved ? 'Salvo' : 'Salvando…'}</span></div></div>
+          <button className="sidebar-help-button" onClick={() => setManualOpen(true)} title="Abrir manual de uso"><BookOpen size={17} /><span>Manual de uso</span></button>
           <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
           <button className="sidebar-export-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Imprimir e exportar</span></button>
           <button className="sidebar-clear-button" onClick={() => { if (window.confirm('Limpar os elementos do canvas? As caixas de identificação e demanda serão mantidas.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] })); setSelectedId(null); } }}>
@@ -3207,7 +3214,125 @@ export default function App() {
         setStressTestOpen(false);
         focusAssistantTarget(targetId);
       }} onClose={() => setStressTestOpen(false)} />}
+      {manualOpen && <ManualModal onClose={closeManual} />}
     </div>
+  );
+}
+
+function ManualModal({ onClose }: { onClose: () => void }) {
+  const [activeStep, setActiveStep] = useState(0);
+  const steps = [
+    {
+      title: 'Comece pelo Estado Atual', icon: <Map size={18}/>, summary: 'Registre o processo como ele realmente acontece hoje, sem antecipar melhorias.',
+      bullets: [
+        'Abra Estado atual na sidebar. Tudo que for criado nele será levado automaticamente aos cenários futuros.',
+        'Use Modelo base do Excel se quiser começar com a estrutura padrão já montada.',
+        'Mantenha Matéria-prima como início do fluxo e Cliente final como término.',
+      ],
+      tip: 'O Estado Atual é a fotografia da realidade. Faça as experiências somente no Estado Futuro.',
+    },
+    {
+      title: 'Informe demanda e TAKT', icon: <Calculator size={18}/>, summary: 'Defina o ritmo exigido pelo cliente antes de analisar capacidade.',
+      bullets: [
+        'Clique em Demanda e TAKT na sidebar ou na caixa fixa Controle da Produção.',
+        'Informe demanda mensal, dias úteis e minutos disponíveis por dia.',
+        'Cadastre o mix de produtos e a quantidade por embalagem para calcular pitch e Heijunka.',
+      ],
+      tip: 'TAKT é o ritmo necessário para atender o cliente. Ele não é o tempo de ciclo da máquina.',
+    },
+    {
+      title: 'Monte o mapa pela biblioteca', icon: <LayoutTemplate size={18}/>, summary: 'Arraste símbolos para o quadro e monte o fluxo na ordem real de produção.',
+      bullets: [
+        'Escolha uma categoria ou pesquise o símbolo pelo nome.',
+        'Arraste processos, estoques, logística, Kanban, informações e setas para o canvas.',
+        'A linha do tempo é criada automaticamente seguindo processos e estoques posicionados no mapa.',
+      ],
+      tip: 'As linhas de alinhamento aparecem durante o movimento para manter o MFV simétrico.',
+    },
+    {
+      title: 'Edite e organize os elementos', icon: <Pencil size={18}/>, summary: 'Cada símbolo possui dados próprios, posição, tamanho e regras visuais.',
+      bullets: [
+        'Dê duplo clique em uma caixa para editar nome, tempos, quantidade, disponibilidade, qualidade e dimensões.',
+        'Arraste o elemento para mover. Nas setas, arraste o corpo para mover e as pontas para redimensionar ou conectar.',
+        'Selecione um elemento e use Delete para excluir. A caixa de Controle da Produção é fixa e não pode ser removida.',
+      ],
+      tip: 'Estoques permanecem amarelos, setas permanecem pretas e a Área de intervenção permanece vermelha.',
+    },
+    {
+      title: 'Crie o Estado Futuro', icon: <GitCompareArrows size={18}/>, summary: 'Teste melhorias sem alterar o registro do processo atual.',
+      bullets: [
+        'Tudo que for adicionado ou atualizado no Estado Atual avança para o Futuro; alterações futuras nunca voltam.',
+        'Crie vários cenários para testar demanda, setup, disponibilidade, qualidade ou recursos diferentes.',
+        'Use Comparar para enxergar capacidade, WIP, atravessamento, qualidade, carga e operadores contra o Atual.',
+      ],
+      tip: 'Uma alteração manual no Futuro vira uma hipótese local e é preservada nas próximas sincronizações.',
+    },
+    {
+      title: 'Execute as simulações', icon: <Activity size={18}/>, summary: 'Veja o fluxo acontecer e descubra onde ele deixa de atender à demanda.',
+      bullets: [
+        'Simular fluxo anima embalagens, filas, WIP, bloqueios e carregamento do transporte durante um dia.',
+        'Teste de estresse simula vários dias, demanda, turnos, intervalos, falhas, fornecedor e transporte.',
+        'Leia o nível de serviço, atraso, WIP máximo, dia da ruptura e processo restritivo.',
+      ],
+      tip: 'O teste de estresse não altera o cenário; ele aplica condições temporárias somente ao cálculo.',
+    },
+    {
+      title: 'Use o Assistente Lean', icon: <BookOpen size={18}/>, summary: 'Receba explicações e correções guiadas para o Estado Futuro.',
+      bullets: [
+        'O assistente verifica gargalos, fluxo contínuo, sistema puxado, marcapasso, programação, Kanban e Heijunka.',
+        'Abra uma recomendação para entender por que o problema existe, o que será alterado e o efeito esperado.',
+        'No Estado Futuro, aplique a correção automática e use Desfazer se quiser voltar.',
+      ],
+      tip: 'As recomendações são hipóteses para simulação e devem ser confirmadas no gemba antes da implantação.',
+    },
+    {
+      title: 'Imprima somente o MFV', icon: <Download size={18}/>, summary: 'Exporte o mapa completo sem sidebar, controles ou espaço vazio do canvas.',
+      bullets: [
+        'Clique em Imprimir e exportar na sidebar ou em Exportar no cabeçalho.',
+        'Escolha A1, A2, A3 ou A4. A orientação e a escala são calculadas automaticamente.',
+        'Use PDF para impressão, JPEG para apresentação ou SVG para manter o desenho vetorial.',
+      ],
+      tip: 'Antes de exportar, organize o MFV no canvas. O arquivo será recortado somente na área ocupada pelo mapa.',
+    },
+  ];
+  const step = steps[activeStep];
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+  return createPortal(
+    <div className="editor-overlay manual-overlay" role="dialog" aria-modal="true" aria-labelledby="manual-title">
+      <button className="editor-backdrop" onClick={onClose} aria-label="Fechar manual" />
+      <section className="editor-window manual-modal">
+        <header>
+          <div><span className="manual-eyebrow">Guia rápido</span><h2 id="manual-title">Como usar o MFV Simulador</h2><p>Do primeiro processo ao cenário futuro, em oito passos.</p></div>
+          <button className="icon-button" onClick={onClose}><X size={20}/></button>
+        </header>
+        <div className="manual-layout">
+          <nav className="manual-navigation" aria-label="Etapas do manual">
+            {steps.map((item, index) => <button key={item.title} className={activeStep === index ? 'active' : ''} onClick={() => setActiveStep(index)}>
+              <i>{index + 1}</i><span>{item.title}</span>
+            </button>)}
+          </nav>
+          <article className="manual-content">
+            <div className="manual-step-icon">{step.icon}</div>
+            <span className="manual-step-count">Passo {activeStep + 1} de {steps.length}</span>
+            <h3>{step.title}</h3>
+            <p className="manual-summary">{step.summary}</p>
+            <ol>{step.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ol>
+            <div className="manual-tip"><Sparkles size={15}/><div><strong>Dica prática</strong><p>{step.tip}</p></div></div>
+          </article>
+        </div>
+        <footer className="manual-footer">
+          <div className="manual-progress"><i style={{ width: `${(activeStep + 1) / steps.length * 100}%` }}/></div>
+          <button className="quiet-button" disabled={activeStep === 0} onClick={() => setActiveStep((current) => Math.max(0, current - 1))}>Anterior</button>
+          {activeStep < steps.length - 1
+            ? <button className="primary-button" onClick={() => setActiveStep((current) => Math.min(steps.length - 1, current + 1))}>Próximo</button>
+            : <button className="primary-button" onClick={onClose}>Entendi, começar</button>}
+        </footer>
+      </section>
+    </div>, document.body,
   );
 }
 
