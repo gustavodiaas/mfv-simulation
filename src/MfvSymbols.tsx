@@ -84,10 +84,21 @@ function TintedAssetImage({ el, href, x, y, width, height }: {
   return <>
     <defs>
       <filter id={filterId} x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
-        <feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="surfaceLuminance" />
-        <feComponentTransfer in="surfaceLuminance" result="paintableSurface">
-          <feFuncA type="table" tableValues="0 0 0 0 0 0.08 0.32 0.7 1 1 1" />
+        <feColorMatrix in="SourceGraphic" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0" result="redChannel" />
+        <feColorMatrix in="SourceGraphic" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 1 0 0 0" result="greenChannel" />
+        <feColorMatrix in="SourceGraphic" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 1 0 0" result="blueChannel" />
+        <feComponentTransfer in="redChannel" result="redSurface">
+          <feFuncA type="table" tableValues="0 0 0 0 0 0 0 0.03 0.38 0.86 1" />
         </feComponentTransfer>
+        <feComponentTransfer in="greenChannel" result="greenSurface">
+          <feFuncA type="table" tableValues="0 0 0 0 0 0 0 0.03 0.38 0.86 1" />
+        </feComponentTransfer>
+        <feComponentTransfer in="blueChannel" result="blueSurface">
+          <feFuncA type="table" tableValues="0 0 0 0 0 0 0 0.03 0.38 0.86 1" />
+        </feComponentTransfer>
+        <feComposite in="redSurface" in2="greenSurface" operator="in" result="redGreenSurface" />
+        <feComposite in="redGreenSurface" in2="blueSurface" operator="in" result="whiteSurface" />
+        <feComposite in="whiteSurface" in2="SourceAlpha" operator="in" result="paintableSurface" />
         <feFlood floodColor={color} floodOpacity={0.78} result="paintColor" />
         <feComposite in="paintColor" in2="paintableSurface" operator="in" result="paintedSurface" />
         <feBlend in="SourceGraphic" in2="paintedSurface" mode="multiply" />
