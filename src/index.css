@@ -416,7 +416,7 @@ g:hover > .edit-btn-group { opacity: 1; }
 }
 .editor-window h2 { margin: 0 0 2px; font-size: 18px; letter-spacing: -.03em; }
 
-.demand-modal { max-width: 720px; }
+.demand-modal { max-width: 980px; }
 .modal-title-row { display: flex; align-items: center; gap: 12px; }
 .modal-symbol {
   width: 42px; height: 42px; flex: 0 0 42px; display: grid; place-items: center;
@@ -443,7 +443,24 @@ g:hover > .edit-btn-group { opacity: 1; }
 .takt-result-card > span { color: #afd5ff; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
 .takt-result-card > strong { margin-top: 8px; font-size: clamp(30px,4vw,45px); line-height: 1; letter-spacing: -.05em; }
 .takt-result-card > small { margin-top: 7px; color: #d8ebff; font-size: 11px; }
-.takt-result-card > div { display: flex; justify-content: space-between; gap: 14px; margin-top: 28px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.2); font-size: 11px; }
+.takt-result-card > div { display: flex; justify-content: space-between; gap: 14px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.2); font-size: 11px; }
+.product-mix-section { min-height: 0; margin: 0 22px 16px; overflow: auto; border: 1px solid #e2e2e7; border-radius: 14px; }
+.product-mix-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; background: #f7f7f9; border-bottom: 1px solid #e2e2e7; }
+.product-mix-heading strong { display: block; color: #29292d; font-size: 12px; }
+.product-mix-heading span { display: block; margin-top: 2px; color: #7d7d83; font-size: 9.5px; }
+.product-mix-heading button { display: inline-flex; align-items: center; gap: 5px; padding: 7px 10px; color: #006edb; background: #e8f2ff; border: 0; border-radius: 8px; font-size: 10px; font-weight: 750; cursor: pointer; }
+.product-mix-table { min-width: 720px; }
+.product-mix-header, .product-mix-row { display: grid; grid-template-columns: minmax(180px,1.6fr) minmax(105px,.8fr) minmax(90px,.65fr) 65px 90px 34px; align-items: center; gap: 8px; padding: 7px 12px; }
+.product-mix-header { color: #77777d; background: #fcfcfd; border-bottom: 1px solid #ededf0; font-size: 9px; font-weight: 750; text-transform: uppercase; }
+.product-mix-row { border-bottom: 1px solid #ededf0; font-size: 10px; }
+.product-mix-row input { min-width: 0; height: 34px; padding: 0 9px; color: #252529; background: #f5f5f7; border: 1px solid transparent; border-radius: 8px; outline: none; }
+.product-mix-row input:focus { background: white; border-color: #0071e3; box-shadow: 0 0 0 2px rgba(0,113,227,.1); }
+.product-mix-row > span { color: #48484d; font-weight: 700; text-align: right; }
+.product-remove { width: 30px; height: 30px; display: grid; place-items: center; color: #c52a24; background: transparent; border: 0; border-radius: 7px; cursor: pointer; }
+.product-remove:hover:not(:disabled) { background: #fff0ee; }
+.product-remove:disabled { opacity: .25; cursor: default; }
+.product-mix-total { display: flex; align-items: center; justify-content: flex-end; gap: 9px; padding: 10px 14px; color: #737378; background: #f7f7f9; font-size: 9.5px; }
+.product-mix-total strong { margin-right: 12px; color: #202024; font-size: 11px; }
 .demand-modal-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 18px;
   padding: 15px 22px 18px; border-top: 1px solid #e5e5e9;
@@ -593,6 +610,7 @@ g:hover > .edit-btn-group { opacity: 1; }
   .simulation-summary .summary-ok { min-width: 120px; }
   .demand-modal-body { grid-template-columns: 1fr; overflow-y: auto; }
   .takt-result-card { min-height: 170px; }
+  .product-mix-section { flex: 1; }
   .demand-modal-footer { align-items: stretch; flex-direction: column; }
   .demand-modal-footer .primary-button { width: 100%; }
   .identification-editor-body { grid-template-columns: 1fr; overflow-y: auto; }

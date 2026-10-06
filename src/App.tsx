@@ -8,7 +8,7 @@ import {
 import {
   ARROW_KINDS, DEFAULT_TRUCK_COLOR, LIBRARY, makeId,
   type ArrowAnchor, type CanvasArrow, type CanvasElement, type CanvasState,
-  type ElementKind, type LibraryItem, type ScenarioAssumptions,
+  type ElementKind, type LibraryItem, type ProductMixItem, type ScenarioAssumptions,
 } from './canvas-types';
 import {
   BufferSymbol, CustomerDemandSymbol, DataBoxSymbol, ExtendedSymbol, FifoSymbol,
@@ -61,7 +61,7 @@ function validThemeColor(value: unknown) {
 
 function defaultElementDimensions(element: Pick<CanvasElement, 'kind'>) {
   if (element.kind === 'identification') return { width: 390, height: 100 };
-  if (element.kind === 'planning') return { width: 190, height: 142 };
+  if (element.kind === 'planning') return { width: 190, height: 170 };
   const item = LIBRARY.find((candidate) => candidate.kind === element.kind);
   return { width: item?.w || 120, height: item?.h || 80 };
 }
@@ -78,6 +78,7 @@ const DEFAULT_ASSUMPTIONS: ScenarioAssumptions = {
   monthlyDemand: 5,
   workdaysPerMonth: 21,
   availableMinutesPerDay: 558,
+  productMix: [{ id: 'product-base', name: 'Produto principal', monthlyDemand: 5, packSize: 1 }],
 };
 
 function positiveNumber(value: unknown, fallback: number) {
@@ -85,12 +86,40 @@ function positiveNumber(value: unknown, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function normalizedProductMix(value: unknown, fallbackDemand: number): ProductMixItem[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    return [{ id: 'product-base', name: 'Produto principal', monthlyDemand: fallbackDemand, packSize: 1 }];
+  }
+  const normalized = value.map((item, index) => {
+    const candidate = item as Partial<ProductMixItem>;
+    return {
+      id: typeof candidate.id === 'string' && candidate.id ? candidate.id : `product-${index + 1}-${makeId()}`,
+      name: typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim() : `Produto ${index + 1}`,
+      monthlyDemand: Math.max(0, Number(candidate.monthlyDemand) || 0),
+      packSize: Math.max(1, Math.round(Number(candidate.packSize) || 1)),
+    };
+  });
+  return normalized;
+}
+
 function calculateScenario(assumptions: ScenarioAssumptions) {
-  const dailyDemand = assumptions.monthlyDemand / assumptions.workdaysPerMonth;
+  const productMix = normalizedProductMix(assumptions.productMix, assumptions.monthlyDemand);
+  const monthlyDemand = productMix.reduce((sum, item) => sum + item.monthlyDemand, 0);
+  const dailyDemand = monthlyDemand / assumptions.workdaysPerMonth;
   const taktTimeSec = dailyDemand > 0
     ? (assumptions.availableMinutesPerDay * 60) / dailyDemand
     : 0;
-  return { dailyDemand, taktTimeSec };
+  const weightedPackSize = monthlyDemand > 0
+    ? productMix.reduce((sum, item) => sum + item.packSize * item.monthlyDemand, 0) / monthlyDemand
+    : 1;
+  const pitchTimeSec = taktTimeSec * weightedPackSize;
+  const productMetrics = productMix.map((item) => ({
+    ...item,
+    share: monthlyDemand > 0 ? item.monthlyDemand / monthlyDemand : 0,
+    dailyDemand: item.monthlyDemand / assumptions.workdaysPerMonth,
+    pitchTimeSec: taktTimeSec * item.packSize,
+  }));
+  return { monthlyDemand, dailyDemand, taktTimeSec, weightedPackSize, pitchTimeSec, productMetrics };
 }
 
 function calculateProcessLoad(element: CanvasElement, dailyDemand: number, cumulativeYield: number, availableMinutesPerDay: number) {
@@ -127,7 +156,8 @@ function nearestProcess(marker: CanvasElement, processes: CanvasElement[]) {
 }
 
 function calculateCanvasSimulation(canvas: CanvasState) {
-  const { dailyDemand, taktTimeSec } = calculateScenario(canvas.assumptions);
+  const scenario = calculateScenario(canvas.assumptions);
+  const { dailyDemand, taktTimeSec } = scenario;
   const rawMaterialEntry = canvas.elements
     .filter((element) => element.kind === 'raw-material')
     .sort((a, b) => a.x - b.x)[0];
@@ -176,6 +206,21 @@ function calculateCanvasSimulation(canvas: CanvasState) {
       ?? nearestProcess(pacemakerMarker, processElements)
     : undefined;
   const pacemakerMetric = processMetrics.find((metric) => metric.element.id === linkedPacemaker?.id);
+  const pacemakerSetupSec = Math.max(0, Number(linkedPacemaker?.data.setup) || 0) * 60;
+  const availableSeconds = canvas.assumptions.availableMinutesPerDay * 60;
+  const pacemakerResources = Math.max(1, Number(linkedPacemaker?.data.recurso) || 1);
+  const pacemakerAvailability = Math.min(100, Math.max(1, Number(linkedPacemaker?.data.disp) || 100)) / 100;
+  const pacemakerRunSecPerDay = linkedPacemaker
+    ? (Math.max(0, Number(linkedPacemaker.data.tc) || 0) / (pacemakerResources * pacemakerAvailability)) * dailyDemand
+    : 0;
+  const setupCapacitySecPerDay = Math.max(0, availableSeconds - pacemakerRunSecPerDay);
+  const activeProductCount = scenario.productMetrics.filter((item) => item.monthlyDemand > 0).length;
+  const mixChangeovers = activeProductCount > 1 ? activeProductCount : 0;
+  const epeiDays = mixChangeovers > 0 && pacemakerSetupSec > 0 && setupCapacitySecPerDay > 0
+    ? (mixChangeovers * pacemakerSetupSec) / setupCapacitySecPerDay
+    : mixChangeovers > 0 && pacemakerSetupSec > 0
+      ? Infinity
+      : 0;
   const heijunkaBoxes = canvas.elements.filter((element) => element.kind === 'heijunka');
   const pullBuffers = canvas.elements.filter((element) => ['supermarket','fifo'].includes(element.kind));
   const kanbanControls = canvas.elements.filter((element) => ['kanban-production','kanban-withdrawal','signal-kanban','kanban-post'].includes(element.kind));
@@ -229,6 +274,12 @@ function calculateCanvasSimulation(canvas: CanvasState) {
   return {
     dailyDemand,
     taktTimeSec,
+    monthlyDemand: scenario.monthlyDemand,
+    productMetrics: scenario.productMetrics,
+    activeProductCount,
+    weightedPackSize: scenario.weightedPackSize,
+    pitchTimeSec: scenario.pitchTimeSec,
+    epeiDays,
     processElements,
     processMetrics,
     invalidProcesses: processMetrics.filter((metric) => !metric.valid),
@@ -449,10 +500,42 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
     why: 'O marcapasso existe, mas o mapa não mostra como volume e mix serão nivelados.',
     action: 'Adicione um Heijunka Box próximo ao marcapasso.', targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
   });
+  if (simulation.activeProductCount > 1 && simulation.pacemaker) {
+    if (simulation.epeiDays === Infinity) advice.push({
+      id: 'epei-no-capacity', level: 'critical', area: 'programacao', title: 'O mix não cabe no tempo disponível',
+      why: 'Depois de produzir a demanda diária, não sobra capacidade suficiente para realizar os setups do ciclo completo.',
+      action: 'Reduza setup, alivie a carga do marcapasso ou amplie o tempo disponível antes de nivelar o mix.',
+      targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
+    });
+    else if (simulation.epeiDays > 1) advice.push({
+      id: 'epei-long', level: 'opportunity', area: 'programacao', title: `EPEI estimado em ${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dias`,
+      why: 'O marcapasso não consegue completar todo o mix diariamente com o setup atual.',
+      action: 'Use SMED para reduzir setup e aproxime o EPEI de um dia ou menos.',
+      targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
+    });
+    else if (simulation.epeiDays > 0) advice.push({
+      id: 'epei-ok', level: 'good', area: 'programacao', title: `Mix nivelável · EPEI ${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dia(s)`,
+      why: 'O tempo disponível comporta a demanda e os setups necessários para percorrer o mix.',
+      action: 'Converta os pitches por produto em intervalos no Heijunka Box.',
+      targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
+    });
+    else advice.push({
+      id: 'epei-setup-missing', level: 'opportunity', area: 'dados', title: 'Informe o setup do marcapasso para calcular o EPEI',
+      why: 'Há mais de um produto no mix, mas o tempo de troca está zerado.',
+      action: 'Meça a troca entre produtos e preencha o setup do processo marcapasso.',
+      targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
+    });
+  }
   if (simulation.pullSystemActive) advice.push({
     id: 'pull-ok', level: 'good', area: 'pull', title: `Sistema puxado ativo · WIP máximo ${simulation.pullWipLimit}`,
     why: 'Supermercado/FIFO e Kanban possuem limites e já controlam a liberação da simulação.',
     action: 'Valide se o limite representa a condição real e observe as ordens bloqueadas durante o teste.',
+    targetId: simulation.pullBuffers[0]?.id, targetLabel: simulation.pullBuffers[0]?.label,
+  });
+  if (simulation.pullSystemActive && simulation.pullWipLimit < Math.ceil(simulation.weightedPackSize)) advice.push({
+    id: 'pull-below-pack', level: 'critical', area: 'pull', title: 'Limite puxado menor que uma embalagem',
+    why: `O limite é ${simulation.pullWipLimit}, mas a embalagem média libera ${Math.ceil(simulation.weightedPackSize)} unidades por pitch.`,
+    action: 'Ajuste a quantidade por embalagem ou dimensione o limite puxado para comportar ao menos uma reposição completa.',
     targetId: simulation.pullBuffers[0]?.id, targetLabel: simulation.pullBuffers[0]?.label,
   });
 
@@ -465,10 +548,12 @@ function calculateLiveFlow(simulation: ReturnType<typeof calculateCanvasSimulati
   const pacemakerInterval = simulation.pacemakerMetric?.capacityPerDay && Number.isFinite(simulation.pacemakerMetric.capacityPerDay)
     ? availableSeconds / simulation.pacemakerMetric.capacityPerDay
     : 0;
-  const releaseInterval = Math.max(simulation.taktTimeSec, pacemakerInterval);
-  const demanded = Number.isFinite(releaseInterval) && releaseInterval > 0
+  const packSize = Math.max(1, Math.round(simulation.weightedPackSize));
+  const releaseInterval = Math.max(simulation.pitchTimeSec, pacemakerInterval * packSize);
+  const demandedPacks = Number.isFinite(releaseInterval) && releaseInterval > 0
     ? Math.floor(elapsedSec / releaseInterval) + 1
     : 0;
+  const demanded = demandedPacks * packSize;
   const completionInterval = simulation.bottleneckCapacity > 0
     ? availableSeconds / simulation.bottleneckCapacity
     : Infinity;
@@ -478,10 +563,15 @@ function calculateLiveFlow(simulation: ReturnType<typeof calculateCanvasSimulati
     ? Math.floor((elapsedSec - nominalLeadSec) / completionInterval) + 1
     : 0;
   const allowedInFlow = simulation.pullSystemActive ? simulation.pullWipLimit : Infinity;
-  const launched = Math.min(demanded, potentialCompleted + allowedInFlow);
+  const maxAllowed = potentialCompleted + allowedInFlow;
+  const launched = Number.isFinite(maxAllowed)
+    ? Math.min(demanded, Math.max(0, Math.floor(maxAllowed / packSize) * packSize))
+    : demanded;
   const completed = Math.min(launched, potentialCompleted);
   return {
     releaseInterval,
+    packSize,
+    demandedPacks,
     demanded,
     launched,
     completed,
@@ -495,11 +585,14 @@ function calculateLiveFlow(simulation: ReturnType<typeof calculateCanvasSimulati
 function planningData(assumptions: ScenarioAssumptions) {
   const metrics = calculateScenario(assumptions);
   return {
-    demanda: assumptions.monthlyDemand,
+    demanda: metrics.monthlyDemand,
     demandaDiaria: metrics.dailyDemand,
     diasUteis: assumptions.workdaysPerMonth,
     minutosDia: assumptions.availableMinutesPerDay,
     takt: metrics.taktTimeSec,
+    pitch: metrics.pitchTimeSec,
+    embalagem: metrics.weightedPackSize,
+    produtos: metrics.productMetrics.filter((item) => item.monthlyDemand > 0).length,
   };
 }
 
@@ -529,10 +622,13 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
   const elements = Array.isArray(raw?.elements) ? raw.elements : [];
   const existingPlanning = elements.find((element) => element.id === FIXED_PLANNING_ID)
     ?? elements.find((element) => element.kind === 'planning');
+  const legacyDemand = positiveNumber(raw?.assumptions?.monthlyDemand ?? legacy?.monthlyDemand ?? existingPlanning?.data.demanda, DEFAULT_ASSUMPTIONS.monthlyDemand);
+  const productMix = normalizedProductMix(raw?.assumptions?.productMix, legacyDemand);
   const assumptions: ScenarioAssumptions = {
-    monthlyDemand: positiveNumber(raw?.assumptions?.monthlyDemand ?? legacy?.monthlyDemand ?? existingPlanning?.data.demanda, DEFAULT_ASSUMPTIONS.monthlyDemand),
+    monthlyDemand: productMix.reduce((sum, item) => sum + item.monthlyDemand, 0) || legacyDemand,
     workdaysPerMonth: positiveNumber(raw?.assumptions?.workdaysPerMonth ?? legacy?.workdaysPerMonth ?? existingPlanning?.data.diasUteis, DEFAULT_ASSUMPTIONS.workdaysPerMonth),
     availableMinutesPerDay: positiveNumber(raw?.assumptions?.availableMinutesPerDay ?? legacy?.availableMinutesPerDay ?? existingPlanning?.data.minutosDia, DEFAULT_ASSUMPTIONS.availableMinutesPerDay),
+    productMix,
   };
   const fixedPlanning = existingPlanning
     ? { ...existingPlanning, id: FIXED_PLANNING_ID, kind: 'planning' as const, data: { ...existingPlanning.data, ...planningData(assumptions) } }
@@ -653,9 +749,16 @@ function syncCurrentIntoFuture(previousCurrent: CanvasState, current: CanvasStat
   });
 
   const assumptions = { ...future.assumptions };
-  (Object.keys(current.assumptions) as (keyof ScenarioAssumptions)[]).forEach((key) => {
+  const scalarKeys: (keyof Pick<ScenarioAssumptions, 'monthlyDemand' | 'workdaysPerMonth' | 'availableMinutesPerDay'>)[] = [
+    'monthlyDemand', 'workdaysPerMonth', 'availableMinutesPerDay',
+  ];
+  scalarKeys.forEach((key) => {
     if (future.assumptions[key] === previousCurrent.assumptions[key]) assumptions[key] = current.assumptions[key];
   });
+  if (JSON.stringify(future.assumptions.productMix) === JSON.stringify(previousCurrent.assumptions.productMix)) {
+    assumptions.productMix = current.assumptions.productMix.map((item) => ({ ...item }));
+    assumptions.monthlyDemand = assumptions.productMix.reduce((sum, item) => sum + item.monthlyDemand, 0);
+  }
 
   const themeColor = future.themeColor === previousCurrent.themeColor ? current.themeColor : future.themeColor;
   return normalizeCanvas({ ...future, elements: futureElements, arrows: futureArrows, assumptions, themeColor });
@@ -776,8 +879,11 @@ function loadWorkspace(): CanvasWorkspace {
 
 function canvasForPreset(current: CanvasState, preset: ScenarioPreset) {
   const next = cloneCanvas(current);
-  if (preset === 'demand-up') next.assumptions.monthlyDemand *= 1.2;
-  if (preset === 'demand-down') next.assumptions.monthlyDemand *= 0.8;
+  if (preset === 'demand-up' || preset === 'demand-down') {
+    const factor = preset === 'demand-up' ? 1.2 : 0.8;
+    next.assumptions.productMix = next.assumptions.productMix.map((item) => ({ ...item, monthlyDemand: item.monthlyDemand * factor }));
+    next.assumptions.monthlyDemand = next.assumptions.productMix.reduce((sum, item) => sum + item.monthlyDemand, 0);
+  }
   if (preset === 'setup-half') next.elements = next.elements.map((element) => ['process','shared-process'].includes(element.kind)
     ? { ...element, data: { ...element.data, setup: Math.max(0, Number(element.data.setup) || 0) * 0.5 } }
     : element);
@@ -1155,7 +1261,7 @@ function bottleneckGuidance(metric: ReturnType<typeof calculateCanvasSimulation>
   const load = Math.max(100, metric.loadPercent);
   const reduction = Math.max(0, (1 - 100 / load) * 100);
   const extraResources = Math.max(1, Math.ceil(resources * load / 100) - resources);
-  const dailyDemand = assumptions.monthlyDemand / assumptions.workdaysPerMonth;
+  const dailyDemand = calculateScenario(assumptions).dailyDemand;
   const capacityGap = Math.max(0, dailyDemand - metric.capacityPerDay);
 
   if (setupShare >= 0.15) return {
@@ -1206,9 +1312,10 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
   const firstVisible = Math.max(0, releasedToFlow - 18);
   const tokens = Array.from({ length: releasedToFlow - firstVisible }, (_, offset) => {
     const index = firstVisible + offset;
+    const packIndex = Math.floor(index / liveFlow.packSize);
     const releaseTime = simulation.pullSystemActive && index >= simulation.pullWipLimit
       ? liveFlow.nominalLeadSec + (index - simulation.pullWipLimit) * liveFlow.completionInterval
-      : index * flowInterval;
+      : packIndex * flowInterval;
     const age = Math.max(0, elapsedSec - releaseTime);
     const progress = Math.min(1, age / nominalLeadSec);
     const point = pointAlongRoute(route, progress);
@@ -1490,9 +1597,10 @@ function IdentificationEditor({ el, onUpdate, onClose }: {
   );
 }
 
-function DemandModal({ assumptions, planning, onSave, onUpdatePlanning, onClose }: {
+function DemandModal({ assumptions, planning, canvas, onSave, onUpdatePlanning, onClose }: {
   assumptions: ScenarioAssumptions;
   planning: CanvasElement;
+  canvas: CanvasState;
   onSave: (next: ScenarioAssumptions) => void;
   onUpdatePlanning: (patch: Partial<CanvasElement>) => void;
   onClose: () => void;
@@ -1506,9 +1614,33 @@ function DemandModal({ assumptions, planning, onSave, onUpdatePlanning, onClose 
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose]);
 
-  const setNumber = (key: keyof ScenarioAssumptions, value: string) => {
+  const setNumber = (key: 'workdaysPerMonth' | 'availableMinutesPerDay', value: string) => {
     setDraft((previous) => ({ ...previous, [key]: Math.max(0, Number(value) || 0) }));
   };
+  const updateProduct = (id: string, patch: Partial<ProductMixItem>) => {
+    setDraft((previous) => {
+      const productMix = previous.productMix.map((item) => item.id === id ? { ...item, ...patch } : item);
+      return { ...previous, productMix, monthlyDemand: productMix.reduce((sum, item) => sum + item.monthlyDemand, 0) };
+    });
+  };
+  const addProduct = () => setDraft((previous) => ({
+    ...previous,
+    productMix: [...previous.productMix, {
+      id: `product-${makeId()}`,
+      name: `Produto ${previous.productMix.length + 1}`,
+      monthlyDemand: 0,
+      packSize: 1,
+    }],
+  }));
+  const removeProduct = (id: string) => setDraft((previous) => {
+    if (previous.productMix.length <= 1) return previous;
+    const productMix = previous.productMix.filter((item) => item.id !== id);
+    return { ...previous, productMix, monthlyDemand: productMix.reduce((sum, item) => sum + item.monthlyDemand, 0) };
+  });
+  const draftSimulation = calculateCanvasSimulation({ ...canvas, assumptions: draft });
+  const formatDuration = (seconds: number) => seconds >= 60
+    ? `${(seconds / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min`
+    : `${seconds.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s`;
 
   return createPortal(
     <div className="editor-overlay demand-overlay" role="dialog" aria-modal="true" aria-labelledby="demand-modal-title">
@@ -1519,8 +1651,8 @@ function DemandModal({ assumptions, planning, onSave, onUpdatePlanning, onClose 
             <div className="modal-symbol"><Calculator size={20} /></div>
             <div>
               <span className="scenario-pill current">Simulação</span>
-              <h2 id="demand-modal-title">Demanda e TAKT</h2>
-              <p>Defina a necessidade do cliente e o tempo produtivo disponível.</p>
+              <h2 id="demand-modal-title">Demanda, mix e ritmo</h2>
+              <p>Defina os produtos, embalagens e o tempo disponível para calcular takt, pitch e EPEI.</p>
             </div>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
@@ -1528,14 +1660,6 @@ function DemandModal({ assumptions, planning, onSave, onUpdatePlanning, onClose 
 
         <div className="demand-modal-body">
           <div className="demand-fields">
-            <label>
-              <span>Demanda mensal</span>
-              <div className="popover-input-wrap">
-                <input type="number" min={0.01} step="any" value={draft.monthlyDemand}
-                  onChange={(event) => setNumber('monthlyDemand', event.target.value)} />
-                <span>un/mês</span>
-              </div>
-            </label>
             <label>
               <span>Dias úteis no mês</span>
               <div className="popover-input-wrap">
@@ -1563,13 +1687,34 @@ function DemandModal({ assumptions, planning, onSave, onUpdatePlanning, onClose 
               <span>Demanda diária</span>
               <b>{Number.isFinite(metrics.dailyDemand) ? metrics.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—'} un/dia</b>
             </div>
+            <div><span>Pitch médio</span><b>{metrics.pitchTimeSec > 0 ? formatDuration(metrics.pitchTimeSec) : '—'}</b></div>
+            <div><span>EPEI estimado</span><b>{draftSimulation.epeiDays === Infinity ? 'Sem capacidade' : draftSimulation.epeiDays > 0 ? `${draftSimulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dia(s)` : 'Não aplicável'}</b></div>
           </div>
         </div>
 
+        <div className="product-mix-section">
+          <div className="product-mix-heading">
+            <div><strong>Mix de produtos</strong><span>A demanda total é a soma das famílias abaixo.</span></div>
+            <button type="button" onClick={addProduct}><Plus size={14}/>Adicionar produto</button>
+          </div>
+          <div className="product-mix-table">
+            <div className="product-mix-header"><span>Produto</span><span>Demanda/mês</span><span>Emb./caixa</span><span>Mix</span><span>Pitch</span><span /></div>
+            {metrics.productMetrics.map((item) => <div className="product-mix-row" key={item.id}>
+              <input value={item.name} onChange={(event) => updateProduct(item.id, { name: event.target.value })} aria-label="Nome do produto" />
+              <input type="number" min={0} step="any" value={item.monthlyDemand} onChange={(event) => updateProduct(item.id, { monthlyDemand: Math.max(0, Number(event.target.value) || 0) })} aria-label={`Demanda mensal de ${item.name}`} />
+              <input type="number" min={1} step={1} value={item.packSize} onChange={(event) => updateProduct(item.id, { packSize: Math.max(1, Math.round(Number(event.target.value) || 1)) })} aria-label={`Quantidade por embalagem de ${item.name}`} />
+              <span>{(item.share * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</span>
+              <span>{item.pitchTimeSec > 0 ? formatDuration(item.pitchTimeSec) : '—'}</span>
+              <button type="button" className="product-remove" disabled={draft.productMix.length <= 1} onClick={() => removeProduct(item.id)} aria-label={`Remover ${item.name}`}><Trash2 size={14}/></button>
+            </div>)}
+          </div>
+          <div className="product-mix-total"><span>Demanda mensal total</span><strong>{metrics.monthlyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un</strong><span>Embalagem média</span><strong>{metrics.weightedPackSize.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un</strong></div>
+        </div>
+
         <footer className="demand-modal-footer">
-          <p>Ao aplicar, todos os processos do cenário serão comparados automaticamente com o TAKT.</p>
-          <button className="primary-button" disabled={!draft.monthlyDemand || !draft.workdaysPerMonth || !draft.availableMinutesPerDay}
-            onClick={() => onSave(draft)}>
+          <p>O pitch passa a comandar a liberação em embalagens; o EPEI considera o setup do marcapasso.</p>
+          <button className="primary-button" disabled={!metrics.monthlyDemand || !draft.workdaysPerMonth || !draft.availableMinutesPerDay}
+            onClick={() => onSave({ ...draft, monthlyDemand: metrics.monthlyDemand, productMix: metrics.productMetrics.map(({ id, name, monthlyDemand, packSize }) => ({ id, name, monthlyDemand, packSize })) })}>
             <Calculator size={16} />Calcular e aplicar
           </button>
         </footer>
@@ -2469,6 +2614,8 @@ export default function App() {
             <span>Pull <b>{simulation.pullSystemActive ? `ativo · WIP ${simulation.pullWipLimit}` : 'incompleto'}</b></span>
             <span>Kanban <b>{simulation.kanbanCardTotal} cartão(ões)</b></span>
             <span>Heijunka <b>{simulation.heijunkaBoxes.length && simulation.pacemaker ? 'ativo' : 'inativo'}</b></span>
+            <span>Pitch <b>{simulation.pitchTimeSec > 0 ? `${(simulation.pitchTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min` : '—'}</b></span>
+            <span>EPEI <b>{simulation.epeiDays === Infinity ? 'sem capacidade' : simulation.epeiDays > 0 ? `${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dia(s)` : '—'}</b></span>
           </div>
           <div className="lean-control-message" title={simulation.leanWarnings.join(' ')}>
             {simulation.leanWarnings.length
@@ -2642,7 +2789,7 @@ export default function App() {
           onClose={() => setEditingArrow(null)} />
       )}
       {exportOpen && <ExportModal svgRef={svgRef} name={activeKind==='current'?'Estado_Atual':`Estado_Futuro_${activeFuture.name.replace(/[^a-z0-9]+/gi,'_')}`} onClose={() => setExportOpen(false)} />}
-      {demandOpen && <DemandModal assumptions={canvas.assumptions}
+      {demandOpen && <DemandModal assumptions={canvas.assumptions} canvas={canvas}
         planning={canvas.elements.find((element) => element.id === FIXED_PLANNING_ID)!}
         onSave={saveAssumptions}
         onUpdatePlanning={(patch) => updateEl(FIXED_PLANNING_ID, patch)}

@@ -93,10 +93,18 @@ export interface CanvasArrow {
   endAnchor?: ArrowAnchor;
 }
 
+export interface ProductMixItem {
+  id: string;
+  name: string;
+  monthlyDemand: number;
+  packSize: number;
+}
+
 export interface ScenarioAssumptions {
   monthlyDemand: number;
   workdaysPerMonth: number;
   availableMinutesPerDay: number;
+  productMix: ProductMixItem[];
 }
 
 export interface CanvasState {

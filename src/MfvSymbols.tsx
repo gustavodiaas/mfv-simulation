@@ -472,7 +472,7 @@ export function IdentificationSymbol({ el, selected, onEdit, accentColor }: SymP
 }
 
 export function PlanningSymbol({ el, selected, onEdit, accentColor }: SymProps) {
-  const w = 190; const h = 142;
+  const w = 190; const h = 170;
   const colors = theme(accentColor);
   const label = el.label || 'Controle da\nProdução';
   const format = (value: string | number | undefined, digits = 1) => Number(value ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: digits });
@@ -480,6 +480,7 @@ export function PlanningSymbol({ el, selected, onEdit, accentColor }: SymProps) 
     { k: 'Demanda mensal', v: `${format(el.data.demanda, 2)} un` },
     { k: 'Demanda diária', v: `${format(el.data.demandaDiaria, 2)} un` },
     { k: 'TAKT time', v: `${format(Number(el.data.takt ?? 0) / 60, 2)} min`, highlight: true },
+    { k: 'Pitch médio', v: `${format(Number(el.data.pitch ?? 0) / 60, 2)} min` },
     { k: 'Tempo disponível', v: `${format(el.data.minutosDia, 0)} min/dia` },
   ];
   return (
