@@ -278,15 +278,20 @@ export function FifoSymbol({ selected, onEdit, accentColor }: SymProps) {
 export function KanbanProductionSymbol({ el, selected, onEdit, accentColor }: SymProps) {
   const w = 60; const h = 44;
   const colors = theme(accentColor);
+  const card = { accent: '#f59e0b', dark: '#9a4c07', pale: '#fff7df' };
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <rect width={w} height={h} rx={5} fill={colors.accent} stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
-      <rect x={4} y={4} width={w-8} height={h-8} rx={2} fill="rgba(255,255,255,0.25)" />
-      <text x={w/2} y={16} textAnchor="middle" fontSize={6} fontWeight="800" fontFamily="Arial" fill="white">KANBAN</text>
-      <text x={w/2} y={26} textAnchor="middle" fontSize={6} fontWeight="700" fontFamily="Arial" fill="white">PRODUÇÃO</text>
+      <rect width={w} height={h} rx={5} fill="white" stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
+      <rect x={1} y={1} width={w-2} height={12} rx={4} fill={card.accent} />
+      <path d={`M${w-10},1 H${w-1} V10 Z`} fill="#ffd98a" />
+      <rect x={5} y={18} width={4} height={16} rx={2} fill={card.accent} />
+      <text x={w/2} y={9} textAnchor="middle" fontSize={5.5} fontWeight="900" fontFamily="Arial" fill="white">KANBAN</text>
+      <text x={13} y={25} fontSize={6.5} fontWeight="850" fontFamily="Arial" fill={card.dark}>PRODUÇÃO</text>
+      <line x1={13} y1={29} x2={43} y2={29} stroke="#e3c693" strokeWidth={1} />
       {el.data.qty !== undefined && Number(el.data.qty) > 0 &&
-        <text x={w/2} y={38} textAnchor="middle" fontSize={7} fontFamily="Arial" fill="white" fontWeight="700">{el.data.qty} un</text>}
+        <g><rect x={13} y={32} width={30} height={9} rx={4.5} fill={card.pale} />
+          <text x={28} y={39} textAnchor="middle" fontSize={5.5} fontFamily="Arial" fill={card.dark} fontWeight="800">{el.data.qty} un</text></g>}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
@@ -296,15 +301,20 @@ export function KanbanProductionSymbol({ el, selected, onEdit, accentColor }: Sy
 export function KanbanWithdrawalSymbol({ el, selected, onEdit, accentColor }: SymProps) {
   const w = 60; const h = 44;
   const colors = theme(accentColor);
+  const card = { accent: '#22a06b', dark: '#146344', pale: '#e5f7ef' };
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <rect width={w} height={h} rx={5} fill={colors.dark} stroke={sel(selected,colors.darker)} strokeWidth={selW(selected)} />
-      <rect x={4} y={4} width={w-8} height={h-8} rx={2} fill="rgba(255,255,255,0.25)" />
-      <text x={w/2} y={16} textAnchor="middle" fontSize={6} fontWeight="800" fontFamily="Arial" fill="white">KANBAN</text>
-      <text x={w/2} y={26} textAnchor="middle" fontSize={6} fontWeight="700" fontFamily="Arial" fill="white">RETIRADA</text>
+      <rect width={w} height={h} rx={5} fill="white" stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
+      <rect x={1} y={1} width={w-2} height={12} rx={4} fill={card.accent} />
+      <path d={`M${w-10},1 H${w-1} V10 Z`} fill="#91dfbd" />
+      <rect x={5} y={18} width={4} height={16} rx={2} fill={card.accent} />
+      <text x={w/2} y={9} textAnchor="middle" fontSize={5.5} fontWeight="900" fontFamily="Arial" fill="white">KANBAN</text>
+      <text x={13} y={25} fontSize={6.5} fontWeight="850" fontFamily="Arial" fill={card.dark}>RETIRADA</text>
+      <line x1={13} y1={29} x2={43} y2={29} stroke="#a9d8c4" strokeWidth={1} />
       {el.data.qty !== undefined && Number(el.data.qty) > 0 &&
-        <text x={w/2} y={38} textAnchor="middle" fontSize={7} fontFamily="Arial" fill="white" fontWeight="700">{el.data.qty} un</text>}
+        <g><rect x={13} y={32} width={30} height={9} rx={4.5} fill={card.pale} />
+          <text x={28} y={39} textAnchor="middle" fontSize={5.5} fontFamily="Arial" fill={card.dark} fontWeight="800">{el.data.qty} un</text></g>}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
@@ -314,19 +324,41 @@ export function KanbanWithdrawalSymbol({ el, selected, onEdit, accentColor }: Sy
 export function KanbanBoardSymbol({ el, selected, onEdit, accentColor }: SymProps) {
   const w = 120; const h = 100;
   const colors = theme(accentColor);
-  const cols = Math.max(1, Number(el.data.cols) || 3);
-  const rows = Math.max(1, Number(el.data.rows) || 3);
-  const cw = (w - 10) / cols; const rh = (h - 22) / rows;
+  const cols = Math.min(6, Math.max(1, Number(el.data.cols) || 3));
+  const rows = Math.min(5, Math.max(1, Number(el.data.rows) || 3));
+  const gap = 3; const inset = 5; const boardTop = 22; const columnHeaderHeight = 11;
+  const cw = (w - inset * 2 - gap * (cols - 1)) / cols;
+  const rh = (h - boardTop - columnHeaderHeight - 7) / rows;
+  const columnColors = ['#e8f1ff', '#fff4d6', '#e5f7ef', '#f1eaff', '#ffe9e7', '#e9f7f8'];
+  const cardColors = ['#72a7f2', '#f2b84b', '#4fbd8a', '#a987dc', '#ec7c72', '#55b8bd'];
+  const columnNames = cols === 3 ? ['A FAZER', 'EM FLUXO', 'PRONTO'] : Array.from({ length: cols }, (_, index) => `ETAPA ${index + 1}`);
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <rect width={w} height={h} rx={7} fill={colors.pale} stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
-      <rect width={w} height={18} rx={7} fill={colors.accent} />
-      <text x={w/2} y={12} textAnchor="middle" fontSize={7.5} fontWeight="700" fontFamily="Arial" fill="white">{el.label || 'Quadro Kanban'}</text>
-      {Array.from({length: rows}, (_,r) => Array.from({length: cols}, (_,c) => (
-        <rect key={`${r}-${c}`} x={5 + c*cw} y={20 + r*rh} width={cw-2} height={rh-2} rx={1}
-          fill={(r + c) % 3 === 0 ? colors.mid : 'white'} stroke={colors.dark} strokeWidth={0.7} />
-      )))}
+      <rect width={w} height={h} rx={8} fill="#f7f8fa" stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
+      <rect width={w} height={18} rx={8} fill={colors.accent} />
+      <path d={`M0,11 Q0,18 8,18 H${w-8} Q${w},18 ${w},11 V18 H0 Z`} fill={colors.accent} />
+      <circle cx={9} cy={9} r={2} fill="rgba(255,255,255,.72)" />
+      <circle cx={16} cy={9} r={2} fill="rgba(255,255,255,.45)" />
+      <text x={w/2} y={12} textAnchor="middle" fontSize={7.5} fontWeight="800" fontFamily="Arial" fill="white">{el.label || 'Quadro Kanban'}</text>
+      {Array.from({length: cols}, (_,c) => {
+        const x = inset + c * (cw + gap);
+        return <g key={`column-${c}`}>
+          <rect x={x} y={boardTop} width={cw} height={h-boardTop-5} rx={3} fill="white" stroke="#d7dbe2" strokeWidth={0.7} />
+          <rect x={x} y={boardTop} width={cw} height={columnHeaderHeight} rx={3} fill={columnColors[c % columnColors.length]} />
+          <text x={x+cw/2} y={boardTop+7.5} textAnchor="middle" fontSize={cols === 3 ? 4.2 : 3.5} fontWeight="850" fontFamily="Arial" fill="#475467">{columnNames[c]}</text>
+          {Array.from({length: rows}, (_,r) => {
+            const cardY = boardTop + columnHeaderHeight + 3 + r * rh;
+            const showCard = r === 0 || (r + c) % 3 !== 2;
+            return showCard && <g key={`card-${r}-${c}`}>
+              <rect x={x+3} y={cardY} width={Math.max(4,cw-6)} height={Math.max(4,rh-3)} rx={2}
+                fill={cardColors[(r+c) % cardColors.length]} opacity={0.94} />
+              {cw > 18 && <><circle cx={x+7} cy={cardY+3.5} r={1.1} fill="rgba(255,255,255,.9)" />
+                <line x1={x+10} y1={cardY+3.5} x2={x+cw-4} y2={cardY+3.5} stroke="rgba(255,255,255,.8)" strokeWidth={0.8} /></>}
+            </g>;
+          })}
+        </g>;
+      })}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
