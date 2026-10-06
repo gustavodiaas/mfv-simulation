@@ -160,13 +160,13 @@ export const LIBRARY: LibraryItem[] = [
   { kind: 'forklift',          label: 'Empilhadeira',       group: 'logistica',  defaultLabel: 'Movimentação',        defaultData: { distance: 0, color: DEFAULT_TRUCK_COLOR },       w: 140, h: 115 },
   { kind: 'milk-run',          label: 'Milk run',           group: 'logistica',  defaultLabel: 'Milk run',            defaultData: { freq: 1, color: DEFAULT_TRUCK_COLOR },           w: 190, h: 110 },
   // ── Kanban
-  { kind: 'kanban-production', label: 'Kanban produção',    group: 'kanban',     defaultLabel: 'Kanban\nprodução',    defaultData: { qty: 0 },                                       w: 60,  h: 44  },
-  { kind: 'kanban-withdrawal', label: 'Kanban retirada',    group: 'kanban',     defaultLabel: 'Kanban\nretirada',   defaultData: { qty: 0 },                                       w: 60,  h: 44  },
+  { kind: 'kanban-production', label: 'Kanban produção',    group: 'kanban',     defaultLabel: 'Kanban\nprodução',    defaultData: { qty: 0, replenishmentMin: 60, safetyPercent: 10 }, w: 60, h: 44 },
+  { kind: 'kanban-withdrawal', label: 'Kanban retirada',    group: 'kanban',     defaultLabel: 'Kanban\nretirada',   defaultData: { qty: 0, replenishmentMin: 60, safetyPercent: 10 }, w: 60, h: 44 },
   { kind: 'kanban-board',      label: 'Quadro kanban',      group: 'kanban',     defaultLabel: 'Quadro\nKanban',     defaultData: { cols: 3, rows: 3 },                             w: 120, h: 100 },
   { kind: 'heijunka',          label: 'Heijunka box',       group: 'kanban',     defaultLabel: 'Heijunka',           defaultData: { cols: 5, rows: 2 },                             w: 140, h: 80  },
   { kind: 'sequencing-box',    label: 'Caixa sequenciamento', group: 'kanban',   defaultLabel: 'Sequenciamento',     defaultData: { slots: 6 },                                     w: 120, h: 60  },
-  { kind: 'signal-kanban',     label: 'Kanban de sinal',    group: 'kanban',     defaultLabel: 'Kanban sinal',        defaultData: { qty: 0 },                                       w: 64,  h: 56  },
-  { kind: 'kanban-post',       label: 'Posto kanban',       group: 'kanban',     defaultLabel: 'Posto Kanban',        defaultData: { qty: 0 },                                       w: 88,  h: 72  },
+  { kind: 'signal-kanban',     label: 'Kanban de sinal',    group: 'kanban',     defaultLabel: 'Kanban sinal',        defaultData: { qty: 0, replenishmentMin: 60, safetyPercent: 10 }, w: 64, h: 56 },
+  { kind: 'kanban-post',       label: 'Posto kanban',       group: 'kanban',     defaultLabel: 'Posto Kanban',        defaultData: { qty: 0, replenishmentMin: 60, safetyPercent: 10 }, w: 88, h: 72 },
   { kind: 'sequenced-pull',    label: 'Puxada sequenciada', group: 'kanban',     defaultLabel: 'Puxada sequenciada',  defaultData: { pitch: 0 },                                     w: 150, h: 62  },
   // ── Informação
   { kind: 'planning',          label: 'Controle produção',  group: 'informacao', defaultLabel: 'Controle da\nProdução', defaultData: { demanda: 0, takt: 0 },                     w: 160, h: 110 },

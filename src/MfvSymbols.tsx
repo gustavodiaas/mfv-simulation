@@ -315,7 +315,7 @@ export function KanbanProductionSymbol({ el, selected, onEdit }: SymProps) {
       <line x1={13} y1={29} x2={43} y2={29} stroke="#e3c693" strokeWidth={1} />
       {el.data.qty !== undefined && Number(el.data.qty) > 0 &&
         <g><rect x={13} y={32} width={30} height={9} rx={4.5} fill={card.pale} />
-          <text x={28} y={39} textAnchor="middle" fontSize={5.5} fontFamily="Arial" fill={card.dark} fontWeight="800">{el.data.qty} un</text></g>}
+          <text x={28} y={39} textAnchor="middle" fontSize={5.5} fontFamily="Arial" fill={card.dark} fontWeight="800">{el.data.qty} cart.</text></g>}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
@@ -337,7 +337,7 @@ export function KanbanWithdrawalSymbol({ el, selected, onEdit }: SymProps) {
       <line x1={13} y1={29} x2={43} y2={29} stroke="#a9d8c4" strokeWidth={1} />
       {el.data.qty !== undefined && Number(el.data.qty) > 0 &&
         <g><rect x={13} y={32} width={30} height={9} rx={4.5} fill={card.pale} />
-          <text x={28} y={39} textAnchor="middle" fontSize={5.5} fontFamily="Arial" fill={card.dark} fontWeight="800">{el.data.qty} un</text></g>}
+          <text x={28} y={39} textAnchor="middle" fontSize={5.5} fontFamily="Arial" fill={card.dark} fontWeight="800">{el.data.qty} cart.</text></g>}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
@@ -827,13 +827,13 @@ export function ExtendedSymbol(props: SymProps) {
   if (el.kind === 'signal-kanban') {
     const w=64,h=56;
     const kanbanColors = theme('#2c5fa8');
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points={`${w/2},4 ${w-5},${h-8} 5,${h-8}`} fill="#f2b84b" stroke={sel(selected,'#9a6508')} strokeWidth={strokeWidth}/><text x={w/2} y={34} textAnchor="middle" fontSize={9} fontWeight="800" fontFamily="Arial" fill={kanbanColors.darker}>K</text>{edit(w-2)}</g>;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points={`${w/2},4 ${w-5},${h-8} 5,${h-8}`} fill="#f2b84b" stroke={sel(selected,'#9a6508')} strokeWidth={strokeWidth}/><text x={w/2} y={31} textAnchor="middle" fontSize={9} fontWeight="800" fontFamily="Arial" fill={kanbanColors.darker}>K</text>{Number(el.data.qty) > 0 && <text x={w/2} y={41} textAnchor="middle" fontSize={5.5} fontWeight="800" fontFamily="Arial" fill={kanbanColors.darker}>{el.data.qty} cart.</text>}{edit(w-2)}</g>;
   }
 
   if (el.kind === 'kanban-post') {
     const w=88,h=72;
     const kanbanColors = theme('#2c5fa8');
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={18} y={8} width={52} height={48} rx={6} fill={kanbanColors.pale} stroke={sel(selected,kanbanColors.dark)} strokeWidth={strokeWidth}/><line x1={27} y1={20} x2={61} y2={20} stroke="#f2b84b" strokeWidth={3}/><line x1={27} y1={31} x2={61} y2={31} stroke="#4fbd8a" strokeWidth={3}/><line x1={27} y1={42} x2={61} y2={42} stroke="#72a7f2" strokeWidth={3}/>{label(w/2,68,el.label,kanbanColors.darker)}{edit(w-2)}</g>;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={18} y={8} width={52} height={48} rx={6} fill={kanbanColors.pale} stroke={sel(selected,kanbanColors.dark)} strokeWidth={strokeWidth}/><line x1={27} y1={20} x2={61} y2={20} stroke="#f2b84b" strokeWidth={3}/><line x1={27} y1={31} x2={61} y2={31} stroke="#4fbd8a" strokeWidth={3}/><line x1={27} y1={42} x2={61} y2={42} stroke="#72a7f2" strokeWidth={3}/>{Number(el.data.qty) > 0 && <text x={w/2} y={53} textAnchor="middle" fontSize={5.5} fontWeight="800" fontFamily="Arial" fill={kanbanColors.darker}>{el.data.qty} cart.</text>}{label(w/2,68,el.label,kanbanColors.darker)}{edit(w-2)}</g>;
   }
 
   if (el.kind === 'sequenced-pull') {

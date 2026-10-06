@@ -42,6 +42,7 @@ const TINTABLE_ASSET_KINDS: ElementKind[] = [
 ];
 type ActiveKind = 'current' | 'future';
 type ScenarioPreset = 'current' | 'demand-up' | 'demand-down' | 'setup-half' | 'availability-up' | 'bottleneck-resource' | 'quality-up';
+const KANBAN_CONTROL_KINDS: ElementKind[] = ['kanban-production','kanban-withdrawal','signal-kanban','kanban-post'];
 
 interface FutureVariant {
   id: string;
@@ -120,6 +121,36 @@ function calculateScenario(assumptions: ScenarioAssumptions) {
     pitchTimeSec: taktTimeSec * item.packSize,
   }));
   return { monthlyDemand, dailyDemand, taktTimeSec, weightedPackSize, pitchTimeSec, productMetrics };
+}
+
+function calculateKanbanSizing(element: CanvasElement, assumptions: ScenarioAssumptions) {
+  const scenario = calculateScenario(assumptions);
+  const productId = String(element.data.productId ?? '');
+  const product = scenario.productMetrics.find((item) => item.id === productId);
+  const dailyDemand = product?.dailyDemand ?? scenario.dailyDemand;
+  const inheritedPackSize = product?.packSize ?? Math.max(1, Math.round(scenario.weightedPackSize));
+  const packSize = Math.max(1, Math.round(Number(element.data.packSize) || inheritedPackSize));
+  const replenishmentMin = Math.max(0, Number(element.data.replenishmentMin) || 0);
+  const safetyPercent = Math.max(0, Number(element.data.safetyPercent) || 0);
+  const demandDuringReplenishment = assumptions.availableMinutesPerDay > 0
+    ? dailyDemand * (replenishmentMin / assumptions.availableMinutesPerDay)
+    : 0;
+  const protectedDemand = demandDuringReplenishment * (1 + safetyPercent / 100);
+  const recommendedCards = protectedDemand > 0 ? Math.ceil(protectedDemand / packSize) : 0;
+  const cards = Math.max(0, Math.floor(Number(element.data.qty) || 0));
+  return {
+    productId,
+    productName: product?.name ?? 'Mix total',
+    dailyDemand,
+    packSize,
+    replenishmentMin,
+    safetyPercent,
+    demandDuringReplenishment,
+    recommendedCards,
+    recommendedUnits: recommendedCards * packSize,
+    cards,
+    authorizedUnits: cards * packSize,
+  };
 }
 
 function calculateProcessLoad(element: CanvasElement, dailyDemand: number, cumulativeYield: number, availableMinutesPerDay: number) {
@@ -223,10 +254,14 @@ function calculateCanvasSimulation(canvas: CanvasState) {
       : 0;
   const heijunkaBoxes = canvas.elements.filter((element) => element.kind === 'heijunka');
   const pullBuffers = canvas.elements.filter((element) => ['supermarket','fifo'].includes(element.kind));
-  const kanbanControls = canvas.elements.filter((element) => ['kanban-production','kanban-withdrawal','signal-kanban','kanban-post'].includes(element.kind));
-  const kanbanCardTotal = kanbanControls.reduce((sum, element) => sum + Math.floor(Math.max(0, Number(element.data.qty) || 0)), 0);
-  const configuredPullLimits = [...pullBuffers, ...kanbanControls]
-    .map((element) => Math.floor(Math.max(0, Number(element.data.qty) || 0)))
+  const kanbanControls = canvas.elements.filter((element) => KANBAN_CONTROL_KINDS.includes(element.kind));
+  const kanbanSizing = kanbanControls.map((element) => ({ element, ...calculateKanbanSizing(element, canvas.assumptions) }));
+  const kanbanCardTotal = kanbanSizing.reduce((sum, sizing) => sum + sizing.cards, 0);
+  const kanbanAuthorizedUnits = kanbanSizing.reduce((sum, sizing) => sum + sizing.authorizedUnits, 0);
+  const configuredPullLimits = [
+    ...pullBuffers.map((element) => Math.floor(Math.max(0, Number(element.data.qty) || 0))),
+    ...kanbanSizing.map((sizing) => sizing.authorizedUnits),
+  ]
     .filter((quantity) => quantity > 0);
   const pullWipLimit = configuredPullLimits.length ? Math.min(...configuredPullLimits) : 0;
   const pullSystemActive = pullBuffers.length > 0 && kanbanControls.length > 0 && pullWipLimit > 0;
@@ -292,7 +327,9 @@ function calculateCanvasSimulation(canvas: CanvasState) {
     heijunkaBoxes,
     pullBuffers,
     kanbanControls,
+    kanbanSizing,
     kanbanCardTotal,
+    kanbanAuthorizedUnits,
     pullWipLimit,
     pullSystemActive,
     leanWarnings,
@@ -488,12 +525,31 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
       action: 'Informe o limite de unidades permitido neste ponto.', targetId: buffer.id, targetLabel: buffer.label,
     });
   });
-  simulation.kanbanControls.filter((kanban) => Number(kanban.data.qty) <= 0).forEach((kanban) => advice.push({
+  simulation.kanbanSizing.filter((sizing) => sizing.cards <= 0).forEach(({ element: kanban }) => advice.push({
     id: `cards-missing-${kanban.id}`, level: 'critical', area: 'kanban', title: 'Kanban sem quantidade de cartões',
     why: 'Um cartão sem quantidade não define o limite de trabalho autorizado.',
-    action: 'Informe a quantidade inicial de cartões; o dimensionamento completo virá com embalagem e reposição.',
+    action: 'Informe o produto, o tempo de reposição e a segurança para calcular a quantidade recomendada.',
     targetId: kanban.id, targetLabel: kanban.label,
   }));
+  simulation.kanbanSizing.filter((sizing) => sizing.cards > 0 && sizing.replenishmentMin <= 0).forEach(({ element: kanban }) => advice.push({
+    id: `replenishment-missing-${kanban.id}`, level: 'opportunity', area: 'dados', title: 'Tempo de reposição do Kanban não informado',
+    why: 'Sem o ciclo completo de coleta, produção e entrega, não é possível validar a quantidade de cartões.',
+    action: 'Cronometre o tempo de reposição e informe-o no cartão Kanban.', targetId: kanban.id, targetLabel: kanban.label,
+  }));
+  simulation.kanbanSizing.filter((sizing) => sizing.recommendedCards > 0 && sizing.cards > 0 && sizing.cards < sizing.recommendedCards)
+    .forEach((sizing) => advice.push({
+      id: `kanban-short-${sizing.element.id}`, level: 'critical', area: 'kanban', title: `${sizing.productName}: faltam cartões no circuito`,
+      why: `${sizing.cards} cartão(ões) autorizam ${sizing.authorizedUnits} unidades, abaixo dos ${sizing.recommendedCards} cartões calculados para a reposição.`,
+      action: `Teste ${sizing.recommendedCards} cartões (${sizing.recommendedUnits} unidades) e valide o consumo real.`,
+      targetId: sizing.element.id, targetLabel: sizing.element.label,
+    }));
+  simulation.kanbanSizing.filter((sizing) => sizing.recommendedCards > 0 && sizing.cards > sizing.recommendedCards * 1.5)
+    .forEach((sizing) => advice.push({
+      id: `kanban-excess-${sizing.element.id}`, level: 'opportunity', area: 'kanban', title: `${sizing.productName}: excesso potencial de cartões`,
+      why: `${sizing.cards} cartões foram configurados, enquanto o cálculo indica ${sizing.recommendedCards}.`,
+      action: 'Reduza gradualmente o número de cartões e acompanhe rupturas antes de consolidar o novo limite.',
+      targetId: sizing.element.id, targetLabel: sizing.element.label,
+    }));
 
   if (simulation.pacemaker && !simulation.heijunkaBoxes.length) advice.push({
     id: 'heijunka-missing', level: 'opportunity', area: 'marcapasso', title: 'Nivelamento ainda não representado',
@@ -927,8 +983,8 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
   fifo:                 [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Limite da fila', suffix: 'un' }],
   'waiting-time':       [{ key: 'label', label: 'Tipo de espera', type: 'text' },{ key: 'durationMin', label: 'Duração', suffix: 'min' }],
   'resource-zone':      [{ key: 'label', label: 'Título da área', type: 'text' }],
-  'kanban-production':  [{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
-  'kanban-withdrawal':  [{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
+  'kanban-production':  [],
+  'kanban-withdrawal':  [],
   'kanban-board':       [{ key: 'label', label: 'Título', type: 'text' },{ key: 'cols', label: 'Colunas' },{ key: 'rows', label: 'Linhas' }],
   heijunka:             [{ key: 'label', label: 'Título', type: 'text' },{ key: 'cols', label: 'Colunas (dias)' },{ key: 'rows', label: 'Linhas (tipos)' }],
   'sequencing-box':     [{ key: 'label', label: 'Título', type: 'text' },{ key: 'slots', label: 'Slots' }],
@@ -947,8 +1003,8 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
   bottleneck:           [{ key: 'label', label: 'Descrição', type: 'text' }],
   pacemaker:            [],
   'future-principles':  [{ key: 'label', label: 'Princípios (uma linha por item)', type: 'textarea' }],
-  'signal-kanban':      [{ key: 'qty', label: 'Quantidade de cartões', suffix: 'un' }],
-  'kanban-post':        [{ key: 'label', label: 'Título', type: 'text' },{ key: 'qty', label: 'Quantidade de cartões', suffix: 'un' }],
+  'signal-kanban':      [],
+  'kanban-post':        [{ key: 'label', label: 'Título', type: 'text' }],
   'sequenced-pull':     [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'pitch', label: 'Pitch', suffix: 'min' }],
   operator:             [{ key: 'qty', label: 'Quantidade', suffix: 'pess.' }],
   kaizen:               [{ key: 'label', label: 'Texto', type: 'text' }],
@@ -1426,12 +1482,16 @@ function ElementSizeFields({ el, onUpdate }: {
   );
 }
 
-function ElementPopover({ el, processes, onUpdate, onDelete, onClose }: {
+function ElementPopover({ el, processes, assumptions, onUpdate, onDelete, onClose }: {
   el: CanvasElement; onUpdate: (p: Partial<CanvasElement>) => void;
-  processes: CanvasElement[]; onDelete: () => void; onClose: () => void;
+  processes: CanvasElement[]; assumptions: ScenarioAssumptions; onDelete: () => void; onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const fields = FIELD_DEFS[el.kind] ?? [{ key: 'label', label: 'Rótulo', type: 'text' }];
+  const isKanbanControl = KANBAN_CONTROL_KINDS.includes(el.kind);
+  const scenario = calculateScenario(assumptions);
+  const kanbanSizing = isKanbanControl ? calculateKanbanSizing(el, assumptions) : null;
+  const updateKanbanData = (key: string, value: string | number) => onUpdate({ data: { ...el.data, [key]: value } });
 
   useEffect(() => {
     const pop = ref.current; if (!pop) return;
@@ -1469,6 +1529,32 @@ function ElementPopover({ el, processes, onUpdate, onDelete, onClose }: {
             {processes.map((process) => <option key={process.id} value={process.id}>{process.label || 'Processo sem nome'}</option>)}
           </select>
           <small className="popover-field-help">Somente este processo recebe a programação do fluxo.</small>
+        </div>}
+        {kanbanSizing && <div className="kanban-sizing-editor">
+          <div className="popover-field">
+            <label>Produto atendido</label>
+            <select className="popover-select" value={kanbanSizing.productId}
+              onChange={(event) => {
+                const data: Record<string, string | number> = { ...el.data, productId: event.target.value };
+                delete data.packSize;
+                onUpdate({ data });
+              }}>
+              <option value="">Mix total</option>
+              {scenario.productMetrics.filter((item) => item.monthlyDemand > 0).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </div>
+          <div className="kanban-sizing-grid">
+            <label><span>Reposição completa</span><div className="popover-input-wrap"><input type="number" min={0} step="any" value={kanbanSizing.replenishmentMin} onChange={(event) => updateKanbanData('replenishmentMin', Math.max(0, Number(event.target.value) || 0))}/><span>min</span></div></label>
+            <label><span>Segurança</span><div className="popover-input-wrap"><input type="number" min={0} step="any" value={kanbanSizing.safetyPercent} onChange={(event) => updateKanbanData('safetyPercent', Math.max(0, Number(event.target.value) || 0))}/><span>%</span></div></label>
+            <label><span>Unidades por cartão</span><div className="popover-input-wrap"><input type="number" min={1} step={1} value={kanbanSizing.packSize} onChange={(event) => updateKanbanData('packSize', Math.max(1, Math.round(Number(event.target.value) || 1)))}/><span>un</span></div></label>
+            <label><span>Cartões no circuito</span><div className="popover-input-wrap"><input type="number" min={0} step={1} value={kanbanSizing.cards} onChange={(event) => updateKanbanData('qty', Math.max(0, Math.floor(Number(event.target.value) || 0)))}/><span>cart.</span></div></label>
+          </div>
+          <div className="kanban-sizing-result">
+            <div><span>Demanda no tempo de reposição</span><strong>{kanbanSizing.demandDuringReplenishment.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un</strong></div>
+            <div><span>Recomendação</span><strong>{kanbanSizing.recommendedCards || '—'} cartão(ões) · {kanbanSizing.recommendedUnits} un</strong></div>
+            <button type="button" disabled={!kanbanSizing.recommendedCards} onClick={() => updateKanbanData('qty', kanbanSizing.recommendedCards)}>Aplicar quantidade recomendada</button>
+          </div>
+          <small className="kanban-sizing-formula">Cálculo: consumo durante a reposição × segurança ÷ unidades por cartão.</small>
         </div>}
         {fields.map((f) => (
           <div key={f.key} className="popover-field" style={{ marginTop: 8 }}>
@@ -2612,7 +2698,7 @@ export default function App() {
           <div className="lean-control-facts">
             <span>Marcapasso <b>{simulation.pacemaker?.label || 'não definido'}</b></span>
             <span>Pull <b>{simulation.pullSystemActive ? `ativo · WIP ${simulation.pullWipLimit}` : 'incompleto'}</b></span>
-            <span>Kanban <b>{simulation.kanbanCardTotal} cartão(ões)</b></span>
+            <span>Kanban <b>{simulation.kanbanCardTotal} cartão(ões) · {simulation.kanbanAuthorizedUnits} un</b></span>
             <span>Heijunka <b>{simulation.heijunkaBoxes.length && simulation.pacemaker ? 'ativo' : 'inativo'}</b></span>
             <span>Pitch <b>{simulation.pitchTimeSec > 0 ? `${(simulation.pitchTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min` : '—'}</b></span>
             <span>EPEI <b>{simulation.epeiDays === Infinity ? 'sem capacidade' : simulation.epeiDays > 0 ? `${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dia(s)` : '—'}</b></span>
@@ -2777,7 +2863,7 @@ export default function App() {
           onClose={() => setEditingEl(null)} />
       )}
       {editingEl && editingEl.kind !== 'identification' && (
-        <ElementPopover el={editingEl} processes={simulation.processElements}
+        <ElementPopover el={editingEl} processes={simulation.processElements} assumptions={canvas.assumptions}
           onUpdate={(p) => updateEl(editingEl.id, p)}
           onDelete={() => deleteEl(editingEl.id)}
           onClose={() => setEditingEl(null)} />
