@@ -700,10 +700,10 @@ export function LegendSymbol({ el, selected, onEdit, accentColor }: SymProps) {
   const w = 160; const h = 120;
   const colors = theme(accentColor);
   const items = [
-    { color: colors.accent, label: 'Fluxo empurrado' },
-    { color: colors.dark, label: 'Fluxo puxado' },
-    { color: '#333', label: 'Info manual' },
-    { color: colors.accent, label: 'Info eletrônica', dash: true },
+    { color: '#111', label: 'Fluxo empurrado' },
+    { color: '#111', label: 'Fluxo puxado' },
+    { color: '#111', label: 'Info manual' },
+    { color: '#111', label: 'Info eletrônica', dash: true },
   ];
   return (
     <g>
@@ -780,7 +780,7 @@ export function ExtendedSymbol(props: SymProps) {
   if (el.kind === 'resource-zone') {
     const w=340,h=180;
     const interventionRed = '#d92d20';
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={2} y={12} width={w-4} height={h-14} rx={10} fill="#fff5f4" fillOpacity={0.42} stroke={interventionRed} strokeWidth={2.2} strokeDasharray="8 5"/>
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={2} y={12} width={w-4} height={h-14} rx={10} fill="none" stroke={interventionRed} strokeWidth={2.2} strokeDasharray="8 5"/>
       <rect x={16} y={2} width={Math.min(w-32, Math.max(126, (el.label || '').length * 5.7))} height={22} rx={11} fill="#fff1f0" stroke={interventionRed}/>
       <text x={24} y={17} fontSize={7.5} fontWeight="800" fontFamily="Arial" fill="#8f1d16">{(el.label || 'ÁREA DE INTERVENÇÃO').slice(0,48)}</text>{edit(w-2,14)}</g>;
   }

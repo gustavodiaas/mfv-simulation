@@ -630,14 +630,14 @@ function LibraryThumb({ kind, accentColor }: { kind: ElementKind; accentColor: s
       {kind==='note' && (<g><rect x={2} y={6} width={40} height={32} rx={2} fill="#fff9c4" stroke="#c8b800" strokeWidth={1.5}/><path d="M32,6 L42,16 L32,16 Z" fill="#e8cc00"/>{[14,20,26].map(y=><line key={y} x1={6} y1={y} x2={30} y2={y} stroke="#d4c400" strokeWidth={0.8}/>)}</g>)}
       {kind==='timeline' && (<g transform="translate(2,10)"><rect width={40} height={24} rx={2} fill="#f4f6fc" stroke="#6070a0" strokeWidth={1.5}/><path d="M0,18 L8,8 L16,18 L24,8 L32,18 L40,18" fill="none" stroke="#6070a0" strokeWidth={1.5}/></g>)}
       {kind==='legend' && (<g transform="scale(0.27) translate(2,2)"><rect width={160} height={120} rx={3} fill="white" stroke="#8a9099" strokeWidth={2}/><rect width={160} height={20} rx={3} fill="#9aa0ae"/>{['Empurrado','Puxado','Manual','Eletrônica'].map((l,i)=><text key={l} x={36} y={30+i*22} fontSize={12} fontFamily="Arial" fill="#363b43">{l}</text>)}</g>)}
-      {kind==='arrow-push' && (<polygon points="2,18 30,18 30,12 42,22 30,32 30,26 2,26" fill={accentColor}/>)}
-      {kind==='arrow-pull' && (<g><path d="M4,22 Q4,8 22,8 Q40,8 40,22 Q40,36 22,36 Q12,36 8,30" fill="none" stroke={accentColor} strokeWidth={2}/><polygon points="4,16 4,28 -1,22" fill={accentColor}/><circle cx={8} cy={30} r={3} fill={accentColor}/></g>)}
+      {kind==='arrow-push' && (<g><defs><pattern id="thumb-push-zebra" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(24)"><rect width="8" height="8" fill="white"/><rect width="4" height="8" fill="#111"/></pattern></defs><path d="M2,19 H32 V15 L42,22 L32,29 V25 H2 Z" fill="url(#thumb-push-zebra)" stroke="#111" strokeWidth={1.4}/></g>)}
+      {kind==='arrow-pull' && (<g><path d="M4,22 Q4,8 22,8 Q40,8 40,22 Q40,36 22,36 Q12,36 8,30" fill="none" stroke="#111" strokeWidth={2}/><polygon points="4,16 4,28 -1,22" fill="#111"/><circle cx={8} cy={30} r={3} fill="#111"/></g>)}
       {kind==='arrow-info-manual' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#333" strokeWidth={2}/><polygon points="34,12 42,18 34,22" fill="#333"/></g>)}
-      {kind==='arrow-info-electronic' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke={accentColor} strokeWidth={2} strokeDasharray="4 3"/><polygon points="19,10 16,19 20,19 17,28 25,17 21,17" fill={accentColor}/><polygon points="34,12 42,18 34,22" fill={accentColor}/></g>)}
-      {kind==='arrow-adjustment' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#cc4400" strokeWidth={2} strokeDasharray="2 2"/><polygon points="34,12 42,18 34,22" fill="#cc4400"/><circle cx={4} cy={36} r={3} fill="#cc4400"/></g>)}
+      {kind==='arrow-info-electronic' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#111" strokeWidth={2} strokeDasharray="4 3"/><polygon points="19,10 16,19 20,19 17,28 25,17 21,17" fill="#111"/><polygon points="34,12 42,18 34,22" fill="#111"/></g>)}
+      {kind==='arrow-adjustment' && (<g><path d="M4,36 Q22,4 40,16" fill="none" stroke="#111" strokeWidth={2} strokeDasharray="2 2"/><polygon points="34,12 42,18 34,22" fill="#111"/><circle cx={4} cy={36} r={3} fill="#111"/></g>)}
       {kind==='arrow-schedule' && (<g><path d="M3,36 Q22,1 40,18" fill="none" stroke="#333" strokeWidth={2}/><polygon points="34,13 42,19 34,23" fill="#333"/></g>)}
       {kind==='arrow-shipment' && (<g><path d="M3,22 H39" fill="none" stroke="#333" strokeWidth={2} strokeDasharray="7 4"/><polygon points="34,17 42,22 34,27" fill="#333"/></g>)}
-      {kind==='arrow-physical' && (<path d="M3,16 H30 L30,11 L41,22 L30,33 L30,28 H3 Z" fill="white" stroke={accentColor} strokeWidth={2}/>)}
+      {kind==='arrow-physical' && (<path d="M3,16 H30 L30,11 L41,22 L30,33 L30,28 H3 Z" fill="white" stroke="#111" strokeWidth={2}/>)}
       <g transform="scale(.3)"><ExtendedSymbol el={{ id:'thumb', kind, x:0, y:0, label:'', data:{} }} selected={false} onEdit={() => undefined} /></g>
     </svg>
   );
@@ -684,8 +684,8 @@ function LibraryPanel({ onDragStart, accentColor }: { onDragStart: (item: Librar
 
 // ─── Setas SVG ────────────────────────────────────────────────────────────────
 
-function ArrowShape({ arrow, selected, accentColor }: {
-  arrow: CanvasArrow; selected: boolean; accentColor: string;
+function ArrowShape({ arrow, selected }: {
+  arrow: CanvasArrow; selected: boolean;
 }) {
   const dx = arrow.x2 - arrow.x1; const dy = arrow.y2 - arrow.y1;
   const len = Math.sqrt(dx*dx + dy*dy);
@@ -701,10 +701,13 @@ function ArrowShape({ arrow, selected, accentColor }: {
   const isShipment = arrow.kind === 'arrow-shipment';
   const isPhysical = arrow.kind === 'arrow-physical';
 
-  const color = (isPush||isPull||isElec||isPhysical) ? accentColor : isAdj ? '#cc4400' : '#333';
+  const color = '#111111';
   const dash = (isElec||isAdj||isShipment) ? (isAdj?'3 3':isShipment?'9 6':'5 3') : 'none';
   const sw = selected ? 3 : 2;
   const id = arrow.id;
+  const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+  const pushHeadLength = Math.min(10, Math.max(7, len * 0.16));
+  const pushShaftEnd = Math.max(8, len - pushHeadLength);
 
   return (
     <g pointerEvents="none">
@@ -712,12 +715,19 @@ function ArrowShape({ arrow, selected, accentColor }: {
         <marker id={`m-${id}`} markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
           <polygon points="0,0 9,3.5 0,7" fill={color} />
         </marker>
+        <pattern id={`zebra-${id}`} width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(24)">
+          <rect width="10" height="10" fill="white" />
+          <rect width="5" height="10" fill={color} />
+        </pattern>
       </defs>
       {isPhysical ? (
         <path d={`M${arrow.x1},${arrow.y1-8} L${ex-16},${ey-8} L${ex},${ey} L${ex-16},${ey+8} L${arrow.x1},${arrow.y1+8} Z`}
           fill="white" stroke={color} strokeWidth={sw} />
       ) : isPush ? (
-        <line x1={arrow.x1} y1={arrow.y1} x2={ex} y2={ey} stroke={color} strokeWidth={sw+3} markerEnd={`url(#m-${id})`} />
+        <g transform={`translate(${arrow.x1},${arrow.y1}) rotate(${angle})`}>
+          <path d={`M0,-3 H${pushShaftEnd} V-6 L${len},0 L${pushShaftEnd},6 V3 H0 Z`}
+            fill={`url(#zebra-${id})`} stroke={color} strokeWidth={selected ? 2.2 : 1.4} strokeLinejoin="round" />
+        </g>
       ) : isPull ? (
         <>
           <path d={`M${arrow.x1},${arrow.y1} Q${mx-dy*.25},${my+dx*.25} ${ex},${ey}`}
@@ -732,7 +742,7 @@ function ArrowShape({ arrow, selected, accentColor }: {
           <path d={`M${arrow.x1},${arrow.y1} Q${mx},${my-30} ${ex},${ey}`}
             fill="none" stroke={color} strokeWidth={sw} strokeDasharray={dash} markerEnd={`url(#m-${id})`} />
           {isElec && <polygon points={`${mx-4},${my-26} ${mx-7},${my-16} ${mx-2},${my-16} ${mx-6},${my-8} ${mx+4},${my-20} ${mx-1},${my-20}`}
-            fill={accentColor} opacity={0.85} />}
+            fill={color} opacity={0.85} />}
           {isAdj && <circle cx={arrow.x1} cy={arrow.y1} r={4} fill={color} />}
         </>
       )}
@@ -1275,6 +1285,7 @@ function ArrowPopover({ arrow, onUpdate, onDelete, onClose }: {
 
 type Dragging =
   | { type: 'element'; id: string; startX: number; startY: number; origX: number; origY: number }
+  | { type: 'element-resize'; id: string; corner: 'nw' | 'ne' | 'sw' | 'se'; startX: number; startY: number; origX: number; origY: number; origWidth: number; origHeight: number }
   | { type: 'arrow'; id: string; startX: number; startY: number; x1: number; y1: number; x2: number; y2: number }
   | { type: 'arrow-point'; id: string; point: 'start' | 'end' }
   | { type: 'pan'; startX: number; startY: number; origX: number; origY: number };
@@ -1616,6 +1627,18 @@ export default function App() {
     setDragging({ type: 'arrow-point', id, point });
   };
 
+  const onElementResizeMouseDown = (e: React.MouseEvent, element: CanvasElement, corner: 'nw' | 'ne' | 'sw' | 'se') => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const size = elementDimensions(element);
+    setSelectedId(element.id);
+    dragMovedRef.current = false;
+    setDragging({
+      type: 'element-resize', id: element.id, corner, startX: e.clientX, startY: e.clientY,
+      origX: element.x, origY: element.y, origWidth: size.width, origHeight: size.height,
+    });
+  };
+
   const onArrowMouseDown = (e: React.MouseEvent, arrow: CanvasArrow) => {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -1643,6 +1666,24 @@ export default function App() {
           setAlignmentGuides(snapped.guides);
           const elements = p.elements.map((el) =>
             el.id === dragging.id ? { ...el, x: snapped.x, y: snapped.y } : el);
+          return { ...p, elements, arrows: syncAnchoredArrows(p.arrows, elements) };
+        });
+      } else if (dragging.type === 'element-resize') {
+        const dx = (e.clientX - dragging.startX) / zoom;
+        const dy = (e.clientY - dragging.startY) / zoom;
+        if (Math.abs(e.clientX - dragging.startX) > 3 || Math.abs(e.clientY - dragging.startY) > 3) dragMovedRef.current = true;
+        const fromWest = dragging.corner === 'nw' || dragging.corner === 'sw';
+        const fromNorth = dragging.corner === 'nw' || dragging.corner === 'ne';
+        const rawWidth = dragging.origWidth + (fromWest ? -dx : dx);
+        const rawHeight = dragging.origHeight + (fromNorth ? -dy : dy);
+        const width = Math.max(100, Math.round(rawWidth / GRID_SIZE) * GRID_SIZE);
+        const height = Math.max(70, Math.round(rawHeight / GRID_SIZE) * GRID_SIZE);
+        const x = fromWest ? dragging.origX + dragging.origWidth - width : dragging.origX;
+        const y = fromNorth ? dragging.origY + dragging.origHeight - height : dragging.origY;
+        setCanvas((p) => {
+          const elements = p.elements.map((element) => element.id === dragging.id
+            ? { ...element, x, y, data: { ...element.data, width, height } }
+            : element);
           return { ...p, elements, arrows: syncAnchoredArrows(p.arrows, elements) };
         });
       } else if (dragging.type === 'arrow') {
@@ -2024,8 +2065,7 @@ export default function App() {
               </g>
             )}
             {canvas.arrows.map((arrow) => (
-              <ArrowShape key={arrow.id} arrow={arrow} selected={selectedId===arrow.id} accentColor={canvas.themeColor}
-              />
+              <ArrowShape key={arrow.id} arrow={arrow} selected={selectedId===arrow.id} />
             ))}
             {canvas.elements.filter((el) => el.kind !== 'timeline').map((el) => (
               <g key={el.id} transform={`translate(${el.x},${el.y})`}
@@ -2040,6 +2080,20 @@ export default function App() {
                 {renderElement(el, selectedId===el.id, () => openElementEditor(el), simulation, canvas.assumptions.availableMinutesPerDay, canvas.themeColor)}
               </g>
             ))}
+            {canvas.elements.filter((element) => element.id === selectedId && element.kind === 'resource-zone').map((element) => {
+              const size = elementDimensions(element);
+              const handles = [
+                { corner: 'nw' as const, x: element.x + 2, y: element.y + 12, cursor: 'nwse-resize' },
+                { corner: 'ne' as const, x: element.x + size.width - 2, y: element.y + 12, cursor: 'nesw-resize' },
+                { corner: 'sw' as const, x: element.x + 2, y: element.y + size.height - 2, cursor: 'nesw-resize' },
+                { corner: 'se' as const, x: element.x + size.width - 2, y: element.y + size.height - 2, cursor: 'nwse-resize' },
+              ];
+              return <g key={`resize-${element.id}`} data-export-ui>
+                {handles.map((handle) => <rect key={handle.corner} x={handle.x-5} y={handle.y-5} width={10} height={10} rx={2}
+                  fill="white" stroke="#d92d20" strokeWidth={2} style={{ cursor: handle.cursor }}
+                  onMouseDown={(event) => onElementResizeMouseDown(event, element, handle.corner)} />)}
+              </g>;
+            })}
             <g data-export-ui>
               {canvas.arrows.map((arrow) => (
                 <ArrowInteractionShape key={`interaction-${arrow.id}`} arrow={arrow}
