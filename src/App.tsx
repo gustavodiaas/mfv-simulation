@@ -114,6 +114,31 @@ function calculateProcessLoad(element: CanvasElement, dailyDemand: number, cumul
 
 function calculateCanvasSimulation(canvas: CanvasState) {
   const { dailyDemand, taktTimeSec } = calculateScenario(canvas.assumptions);
+  const rawMaterialEntry = canvas.elements
+    .filter((element) => element.kind === 'raw-material')
+    .sort((a, b) => a.x - b.x)[0];
+  const finalCustomer = canvas.elements
+    .filter((element) => element.kind === 'customer')
+    .sort((a, b) => b.x - a.x)[0];
+  const routeKinds: ElementKind[] = [
+    'warehouse','inventory','safety-stock','buffer','supermarket','fifo','process','shared-process','waiting-time',
+    'finished-goods','shipping-point','truck','transport-air','transport-ship','forklift','milk-run',
+  ];
+  const routeStartX = rawMaterialEntry ? rawMaterialEntry.x + elementDimensions(rawMaterialEntry).width / 2 : 0;
+  const routeEndX = finalCustomer ? finalCustomer.x + elementDimensions(finalCustomer).width / 2 : 0;
+  const productionRouteElements = rawMaterialEntry && finalCustomer
+    ? [
+        rawMaterialEntry,
+        ...canvas.elements
+          .filter((element) => routeKinds.includes(element.kind))
+          .filter((element) => {
+            const centerX = element.x + elementDimensions(element).width / 2;
+            return centerX >= Math.min(routeStartX, routeEndX) && centerX <= Math.max(routeStartX, routeEndX);
+          })
+          .sort((a, b) => routeStartX <= routeEndX ? a.x - b.x : b.x - a.x),
+        finalCustomer,
+      ]
+    : [];
   const processElements = canvas.elements
     .filter((element) => ['process','shared-process'].includes(element.kind))
     .sort((a, b) => a.x - b.x);
@@ -179,6 +204,10 @@ function calculateCanvasSimulation(canvas: CanvasState) {
     leadTimeDays: inventoryDays + waitingLeadTimeDays,
     timelineItems,
     inventoryElements,
+    rawMaterialEntry,
+    finalCustomer,
+    routeReady: Boolean(rawMaterialEntry && finalCustomer),
+    productionRouteElements,
   };
 }
 
@@ -378,14 +407,24 @@ function createExcelTemplate(assumptions: ScenarioAssumptions, scenario: ActiveK
     data: { qty: 0 },
   }));
   const supplier: CanvasElement = { id: `${scenario}-supplier-${makeId()}`, kind: 'supplier', x: 70, y: 25, label: 'Fornecedor', data: { freq: 1 } };
-  const customer: CanvasElement = { id: `${scenario}-customer-${makeId()}`, kind: 'customer', x: 1380, y: 25, label: 'Cliente final', data: { freq: 1 } };
+  const customer: CanvasElement = { id: `${scenario}-customer-${makeId()}`, kind: 'customer', x: 1730, y: 25, label: 'Cliente final', data: { freq: 1 } };
   const rawMaterial: CanvasElement = { id: `${scenario}-raw-${makeId()}`, kind: 'raw-material', x: 45, y: 275, label: 'Matéria-prima', data: { qty: 0 } };
   const shipping: CanvasElement = { id: `${scenario}-shipping-${makeId()}`, kind: 'shipping-point', x: 1510, y: 285, label: 'Expedição', data: {} };
-  const materialNodes = [rawMaterial, ...processes, shipping];
+  const materialNodes = [rawMaterial, ...processes, shipping, customer];
   const materialArrows = materialNodes.slice(0, -1).map((node, index): CanvasArrow => {
     const next = materialNodes[index + 1];
-    const nodeWidth = node.kind === 'raw-material' ? 110 : 150;
-    return { id: `${scenario}-flow-${index}-${makeId()}`, kind: 'arrow-push', x1: node.x + nodeWidth, y1: node.y + 75, x2: next.x - 10, y2: next.y + 75 };
+    const nodeSize = elementDimensions(node);
+    const nextSize = elementDimensions(next);
+    return {
+      id: `${scenario}-flow-${index}-${makeId()}`,
+      kind: 'arrow-push',
+      x1: node.x + nodeSize.width,
+      y1: node.y + nodeSize.height / 2,
+      x2: next.x,
+      y2: next.y + nextSize.height / 2,
+      startAnchor: { elementId: node.id, x: 1, y: .5 },
+      endAnchor: { elementId: next.id, x: 0, y: .5 },
+    };
   });
   const informationArrows: CanvasArrow[] = [
     { id: `${scenario}-info-supplier-${makeId()}`, kind: 'arrow-info-manual', x1: fixedPlanning.x, y1: fixedPlanning.y + 65, x2: supplier.x + 120, y2: supplier.y + 40, label: 'Programação' },
@@ -835,15 +874,8 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
   simulation: ReturnType<typeof calculateCanvasSimulation>;
   elapsedSec: number;
 }) {
-  if (elapsedSec <= 0 || simulation.processElements.length === 0 || !Number.isFinite(simulation.taktTimeSec)) return null;
-  const routeKinds: ElementKind[] = [
-    'supplier','truck','raw-material','warehouse','inventory','safety-stock','buffer','supermarket','fifo',
-    'process','shared-process','waiting-time','finished-goods','shipping-point','customer',
-  ];
-  const stageElements = canvas.elements
-    .filter((element) => routeKinds.includes(element.kind))
-    .sort((a, b) => a.x - b.x);
-  if (!stageElements.length) return null;
+  if (elapsedSec <= 0 || simulation.processElements.length === 0 || !Number.isFinite(simulation.taktTimeSec) || !simulation.routeReady) return null;
+  const stageElements = simulation.productionRouteElements;
   const centers = stageElements.map((element) => {
     const size = elementDimensions(element);
     return { x: element.x + size.width / 2, y: element.y + size.height / 2 };
@@ -852,11 +884,7 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
     const size = elementDimensions(element);
     return { id: element.id, x: element.x + size.width * 0.42, y: element.y + size.height * 0.43, element, size };
   });
-  const route = [
-    { x: centers[0].x - 90, y: centers[0].y },
-    ...centers,
-    { x: centers[centers.length - 1].x + 90, y: centers[centers.length - 1].y },
-  ];
+  const route = centers;
   const availableSeconds = canvas.assumptions.availableMinutesPerDay * 60;
   const completionInterval = simulation.bottleneckCapacity > 0 ? availableSeconds / simulation.bottleneckCapacity : Infinity;
   const nominalLeadSec = Math.max(20,
@@ -1900,6 +1928,14 @@ export default function App() {
   const liveWip = Math.max(0, liveLaunched - liveCompleted);
   const liveClock = `${String(Math.floor(liveElapsedSec / 3600)).padStart(2, '0')}:${String(Math.floor((liveElapsedSec % 3600) / 60)).padStart(2, '0')}`;
   const toggleLiveSimulation = () => {
+    if (!simulation.rawMaterialEntry) {
+      window.alert('Adicione um estoque de matéria-prima para definir a entrada do fluxo produtivo.');
+      return;
+    }
+    if (!simulation.finalCustomer) {
+      window.alert('Adicione um cliente final para definir o término do fluxo produtivo.');
+      return;
+    }
     if (!simulation.processElements.length) {
       window.alert('Adicione ao menos um processo com tempo de ciclo para executar a simulação.');
       return;
@@ -1967,9 +2003,13 @@ export default function App() {
               <div><span>Demanda diária</span><strong>{simulation.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un</strong></div>
               <div><span>TAKT</span><strong>{(simulation.taktTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} min</strong></div>
               <div title={simulation.bottleneck ? `Gargalo: ${simulation.bottleneck.label}` : undefined}><span>Capacidade da linha</span><strong>{simulation.bottleneckCapacity ? `${simulation.bottleneckCapacity.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un/dia` : '—'}</strong></div>
-              <div className={simulation.invalidProcesses.length ? 'summary-warning' : simulation.overloadedProcesses.length ? 'summary-critical' : 'summary-ok'}>
-                {simulation.invalidProcesses.length || simulation.overloadedProcesses.length ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
-                <span>{simulation.invalidProcesses.length
+              <div className={!simulation.routeReady || simulation.invalidProcesses.length ? 'summary-warning' : simulation.overloadedProcesses.length ? 'summary-critical' : 'summary-ok'}>
+                {!simulation.routeReady || simulation.invalidProcesses.length || simulation.overloadedProcesses.length ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
+                <span>{!simulation.rawMaterialEntry
+                  ? 'Adicione matéria-prima'
+                  : !simulation.finalCustomer
+                    ? 'Adicione cliente final'
+                    : simulation.invalidProcesses.length
                   ? `${simulation.invalidProcesses.length} processo(s) sem T/C`
                   : simulation.overloadedProcesses.length
                     ? `${simulation.overloadedProcesses.length} processo(s) crítico(s)`

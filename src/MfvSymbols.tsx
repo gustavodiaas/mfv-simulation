@@ -545,15 +545,16 @@ export function ProductionScheduleSymbol({ el, selected, onEdit, accentColor }: 
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      {/* forma de documento com dobra */}
-      <path d={`M 4,4 L ${w-14},4 L ${w-4},14 L ${w-4},${h-4} L 4,${h-4} Z`}
-        fill={colors.pale} stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
-      <path d={`M ${w-14},4 L ${w-14},14 L ${w-4},14`} fill="none" stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
-      {/* linhas de texto */}
-      {[18,28,38,48].map((y,i) => (
-        <line key={i} x1={10} y1={y} x2={w-16} y2={y} stroke="#8090c0" strokeWidth={i===0?1.5:0.8} />
-      ))}
-      <text x={w/2-4} y={14} textAnchor="middle" fontSize={7} fontWeight="700" fontFamily="Arial" fill="#2a3a90">{el.label||'Programação'}</text>
+      <rect x={12} y={5} width={86} height={60} rx={7} fill="white" stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
+      <rect x={12} y={5} width={86} height={16} rx={7} fill={colors.accent} />
+      <path d="M12,15 Q12,21 19,21 H91 Q98,21 98,15 V21 H12 Z" fill={colors.accent} />
+      <rect x={43} y={2} width={24} height={9} rx={4.5} fill={colors.dark} />
+      <text x={55} y={17} textAnchor="middle" fontSize={6.5} fontWeight="850" fontFamily="Arial" fill="white">{(el.label||'PROGRAMAÇÃO').slice(0,18)}</text>
+      {[0,1,2].map((row) => <g key={row} transform={`translate(19,${27+row*11})`}>
+        <rect width={9} height={7} rx={2} fill={[colors.mid,'#f2b84b','#4fbd8a'][row]} />
+        <line x1={14} y1={2} x2={69-row*8} y2={2} stroke="#758195" strokeWidth={1.2} />
+        <line x1={14} y1={6} x2={54-row*5} y2={6} stroke="#d2d7df" strokeWidth={1} />
+      </g>)}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
@@ -566,17 +567,15 @@ export function OperatorSymbol({ el, selected, onEdit, accentColor }: SymProps) 
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      {/* cabeça */}
-      <circle cx={w/2} cy={12} r={9} fill={colors.light} stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
-      {/* corpo */}
-      <line x1={w/2} y1={21} x2={w/2} y2={42} stroke={sel(selected,colors.dark)} strokeWidth={2.5} />
-      {/* braços */}
-      <line x1={w/2-12} y1={30} x2={w/2+12} y2={30} stroke={sel(selected,colors.dark)} strokeWidth={2.5} />
-      {/* pernas */}
-      <line x1={w/2} y1={42} x2={w/2-10} y2={56} stroke={sel(selected,colors.dark)} strokeWidth={2.5} />
-      <line x1={w/2} y1={42} x2={w/2+10} y2={56} stroke={sel(selected,colors.dark)} strokeWidth={2.5} />
+      <circle cx={20} cy={14} r={7} fill="#f2c9a5" stroke={sel(selected,colors.dark)} strokeWidth={1.2} />
+      <path d="M12,13 Q12,5 20,4 Q28,5 28,13 H25 Q24,9 20,9 Q16,9 15,13 Z" fill="#f2b84b" stroke="#9a6508" strokeWidth={1} />
+      <rect x={10} y={22} width={20} height={23} rx={7} fill={colors.accent} stroke={sel(selected,colors.dark)} strokeWidth={1.2} />
+      <path d="M15,23 L20,31 L25,23 M20,31 V43" fill="none" stroke="white" strokeWidth={2.2} />
+      <path d="M11,27 L4,39 M29,27 L36,39" fill="none" stroke={colors.dark} strokeWidth={3} strokeLinecap="round" />
+      <path d="M16,44 L11,57 M24,44 L29,57" fill="none" stroke={colors.darker} strokeWidth={3.5} strokeLinecap="round" />
+      <path d="M7,57 H13 M27,57 H33" stroke="#303640" strokeWidth={3} strokeLinecap="round" />
       {el.data.qty !== undefined && Number(el.data.qty) > 1 &&
-        <text x={w/2} y={h-1} textAnchor="middle" fontSize={7} fontFamily="Arial" fontWeight="700" fill="#2a50a0">×{el.data.qty}</text>}
+        <g><circle cx={33} cy={49} r={7} fill="white" stroke={colors.dark}/><text x={33} y={52} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fontWeight="800" fill={colors.darker}>×{el.data.qty}</text></g>}
       <EditBtn onEdit={onEdit} x={w} y={2} />
     </g>
   );
@@ -771,8 +770,10 @@ export function ExtendedSymbol(props: SymProps) {
 
   if (el.kind === 'inspection') {
     const w=100,h=86;
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points={`${w/2},5 ${w-5},${h/2} ${w/2},${h-5} 5,${h/2}`} fill={colors.light} stroke={stroke} strokeWidth={strokeWidth}/>
-      <text x={w/2} y={h/2-2} textAnchor="middle" fontSize={18} fontWeight="800" fontFamily="Arial" fill={colors.darker}>Q</text>{label(w/2,h/2+15)}{edit(w-2)}</g>;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points={`${w/2},5 ${w-5},${h/2} ${w/2},${h-5} 5,${h/2}`} fill="white" stroke={stroke} strokeWidth={strokeWidth}/>
+      <circle cx={43} cy={36} r={13} fill={colors.pale} stroke={colors.dark} strokeWidth={1.6}/><path d="M52,45 L64,57" stroke={colors.dark} strokeWidth={4} strokeLinecap="round"/>
+      <path d="M36,36 L41,41 L50,31" fill="none" stroke="#16834b" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"/>
+      <text x={w/2} y={68} textAnchor="middle" fontSize={7} fontWeight="850" fontFamily="Arial" fill={colors.darker}>{(el.label||'INSPEÇÃO').slice(0,18)}</text>{edit(w-2)}</g>;
   }
 
   if (el.kind === 'waiting-time') {
@@ -833,9 +834,21 @@ export function ExtendedSymbol(props: SymProps) {
 
   if (el.kind === 'erp-system' || el.kind === 'go-see') {
     const w=el.kind==='erp-system'?120:130,h=el.kind==='erp-system'?76:72;
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect width={w} height={h} rx={8} fill={colors.pale} stroke={stroke} strokeWidth={strokeWidth}/>
-      {el.kind==='erp-system'?<><rect x={22} y={13} width={76} height={32} rx={4} fill="white" stroke={colors.dark}/><path d="M33,23 H87 M33,31 H74 M33,39 H81" stroke={colors.mid}/><rect x={48} y={48} width={24} height={4} rx={2} fill={colors.accent}/></>:<><circle cx={43} cy={27} r={9} fill="white" stroke={colors.dark}/><circle cx={74} cy={27} r={9} fill="white" stroke={colors.dark}/><path d="M52,27 H65 M34,27 H22 M83,27 H100" stroke={colors.accent} strokeWidth={2}/></>}
-      {label(w/2,h-9)}{edit(w-2)}</g>;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect width={w} height={h} rx={10} fill="#f7f9fc" stroke={stroke} strokeWidth={strokeWidth}/>
+      {el.kind==='erp-system'?<>
+        <rect x={12} y={10} width={74} height={42} rx={5} fill="#26384d" stroke={colors.dark}/><rect x={17} y={15} width={64} height={31} rx={3} fill="white"/>
+        <rect x={21} y={20} width={19} height={7} rx={2} fill={colors.mid}/><rect x={44} y={20} width={31} height={7} rx={2} fill="#e5f7ef"/>
+        <path d="M22,40 L31,33 L42,37 L54,28 L66,34 L75,25" fill="none" stroke={colors.accent} strokeWidth={2}/>
+        <rect x={43} y={53} width={14} height={4} rx={2} fill={colors.dark}/><rect x={35} y={57} width={30} height={3} rx={1.5} fill={colors.mid}/>
+        <rect x={91} y={13} width={18} height={41} rx={4} fill="white" stroke={colors.dark}/>{[21,31,41].map((y,index)=><g key={y}><rect x={95} y={y} width={10} height={5} rx={1.5} fill={[colors.mid,'#f2b84b','#4fbd8a'][index]}/><circle cx={106} cy={y+2.5} r={1} fill={colors.dark}/></g>)}
+      </>:<>
+        <path d="M32,21 Q39,13 49,18 L57,27 V45 Q46,51 35,45 L27,34 Z" fill={colors.accent} stroke={colors.dark} strokeWidth={1.5}/>
+        <path d="M98,21 Q91,13 81,18 L73,27 V45 Q84,51 95,45 L103,34 Z" fill={colors.accent} stroke={colors.dark} strokeWidth={1.5}/>
+        <circle cx={46} cy={33} r={10} fill="#dcecff" stroke={colors.darker} strokeWidth={2}/><circle cx={84} cy={33} r={10} fill="#dcecff" stroke={colors.darker} strokeWidth={2}/>
+        <circle cx={46} cy={33} r={4} fill="#7fb3da"/><circle cx={84} cy={33} r={4} fill="#7fb3da"/><path d="M56,31 Q65,25 74,31" fill="none" stroke={colors.dark} strokeWidth={3}/>
+        <path d="M65,9 V20 M60,15 L65,20 L70,15" fill="none" stroke="#16834b" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
+      </>}
+      {label(w/2,h-7,el.label)}{edit(w-2)}</g>;
   }
 
   if (el.kind === 'quality-problem') {
