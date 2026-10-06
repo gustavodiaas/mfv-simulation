@@ -21,6 +21,7 @@ import {
   WorkCellSymbol,
 } from './MfvSymbols';
 import { exportJPEG, exportPDF, exportSVG, type PaperSize } from './export';
+import { runStressTest, type StressTestSettings } from './stress-test';
 import type { Scenario } from './types';
 import truckThreeQuarter from './assets/truck-three-quarter.png';
 
@@ -2465,6 +2466,7 @@ export default function App() {
   const [scenarioCreateOpen, setScenarioCreateOpen] = useState(false);
   const [comparisonOpen, setComparisonOpen] = useState(false);
   const [leanAssistantOpen, setLeanAssistantOpen] = useState(false);
+  const [stressTestOpen, setStressTestOpen] = useState(false);
   const [appliedLeanFixes, setAppliedLeanFixes] = useState<AppliedLeanFix[]>([]);
   const [leanUndoStack, setLeanUndoStack] = useState<CanvasState[]>([]);
   const [liveRunning, setLiveRunning] = useState(false);
@@ -2480,6 +2482,7 @@ export default function App() {
     setEditingEl(null);
     setEditingArrow(null);
     setLeanAssistantOpen(false);
+    setStressTestOpen(false);
     setAppliedLeanFixes([]);
     setLeanUndoStack([]);
     setLiveRunning(false);
@@ -3051,6 +3054,9 @@ export default function App() {
           <button className="lean-assistant-button" onClick={() => setLeanAssistantOpen(true)}>
             <BookOpen size={14}/><span>Assistente Lean</span><b>{leanActionCount}</b>
           </button>
+          {activeKind === 'future' && <button className="stress-test-button" onClick={() => setStressTestOpen(true)}>
+            <Activity size={14}/><span>Teste de estresse</span>
+          </button>}
         </div>
 
         {(liveRunning || liveElapsedSec > 0) && <div className="live-simulation-bar no-print">
@@ -3225,6 +3231,93 @@ export default function App() {
       {comparisonOpen && <ComparisonModal workspace={workspace} onSelect={selectFuture} onClose={() => setComparisonOpen(false)} />}
       {leanAssistantOpen && <LeanAssistantModal advice={leanAdvice} activeKind={activeKind} appliedFixes={appliedLeanFixes}
         onFocus={focusAssistantTarget} onApply={applyAssistantFix} onUndo={undoAssistantFix} onClose={() => setLeanAssistantOpen(false)} />}
+      {stressTestOpen && <StressTestModal canvas={canvas} onFocus={(targetId) => {
+        setStressTestOpen(false);
+        focusAssistantTarget(targetId);
+      }} onClose={() => setStressTestOpen(false)} />}
+    </div>
+  );
+}
+
+function StressTestModal({ canvas, onFocus, onClose }: {
+  canvas: CanvasState;
+  onFocus: (targetId: string) => void;
+  onClose: () => void;
+}) {
+  const [settings, setSettings] = useState<StressTestSettings>({
+    days: 5,
+    demandPercent: 120,
+    cycleVariationPercent: 15,
+    extraDowntimePercent: 5,
+  });
+  const result = runStressTest(canvas.elements, canvas.assumptions, settings);
+  const update = (key: keyof StressTestSettings, value: number) => {
+    setSettings((previous) => ({ ...previous, [key]: value }));
+  };
+  const format = (value: number, digits = 1) => value.toLocaleString('pt-BR', { maximumFractionDigits: digits });
+  const statusLabel = result.status === 'rupture' ? 'Ruptura' : result.status === 'attention' ? 'Atenção' : result.status === 'stable' ? 'Estável' : 'Incompleto';
+  const maxDaily = Math.max(1, ...result.dayResults.map((day) => Math.max(day.required, day.delivered)));
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  return (
+    <div className="editor-overlay" role="dialog" aria-modal="true" aria-labelledby="stress-test-title">
+      <button className="editor-backdrop" onClick={onClose} aria-label="Fechar teste de estresse" />
+      <section className="editor-window stress-test-modal">
+        <header>
+          <div><h2 id="stress-test-title">Teste de estresse produtivo</h2><p>Simule vários dias sem alterar os dados deste Estado Futuro.</p></div>
+          <button className="icon-button" onClick={onClose}><X size={20}/></button>
+        </header>
+
+        <div className="stress-settings">
+          <label><span>Duração</span><strong>{settings.days} dia(s)</strong><input type="range" min={1} max={30} step={1} value={settings.days} onChange={(event) => update('days', Number(event.target.value))} /></label>
+          <label><span>Pressão de demanda</span><strong>{settings.demandPercent}%</strong><input type="range" min={50} max={250} step={5} value={settings.demandPercent} onChange={(event) => update('demandPercent', Number(event.target.value))} /></label>
+          <label><span>Variação dos ciclos</span><strong>{settings.cycleVariationPercent}%</strong><input type="range" min={0} max={60} step={5} value={settings.cycleVariationPercent} onChange={(event) => update('cycleVariationPercent', Number(event.target.value))} /></label>
+          <label><span>Paradas adicionais</span><strong>{settings.extraDowntimePercent}%</strong><input type="range" min={0} max={40} step={1} value={settings.extraDowntimePercent} onChange={(event) => update('extraDowntimePercent', Number(event.target.value))} /></label>
+        </div>
+
+        <div className="stress-test-body">
+          <section className={`stress-result-hero ${result.status}`}>
+            <div><span className="stress-status">{statusLabel}</span><h3>{result.headline}</h3><p>{result.explanation}</p></div>
+            {result.constraintId && <button onClick={() => onFocus(result.constraintId!)}><Route size={14}/> Ver {result.constraintLabel} no MFV</button>}
+          </section>
+
+          <div className="stress-kpis">
+            <div><span>Nível de serviço</span><strong>{format(result.serviceLevelPercent)}%</strong></div>
+            <div><span>Demanda testada</span><strong>{format(result.requestedUnits)} un</strong></div>
+            <div className={result.backlogUnits > 0.1 ? 'critical' : ''}><span>Atraso final</span><strong>{format(result.backlogUnits)} un</strong></div>
+            <div><span>WIP máximo</span><strong>{format(result.maxWip)} un</strong></div>
+            <div><span>Restrição</span><strong>{result.constraintLabel}</strong></div>
+          </div>
+
+          <div className="stress-recommendation"><Sparkles size={16}/><div><strong>O que fazer primeiro</strong><p>{result.recommendation}</p></div></div>
+
+          {!!result.dayResults.length && <section className="stress-days">
+            <div className="stress-section-title"><strong>Comportamento por dia</strong><span>Meta × entrega acumulada</span></div>
+            <div className="stress-day-chart">
+              {result.dayResults.map((day) => <div className="stress-day" key={day.day} title={`Dia ${day.day}: ${format(day.delivered)} entregues de ${format(day.required)}`}>
+                <div className="stress-day-bars"><i className="required" style={{ height: `${day.required / maxDaily * 100}%` }}/><i className="delivered" style={{ height: `${day.delivered / maxDaily * 100}%` }}/></div>
+                <b>D{day.day}</b><small className={day.backlog > 0.1 ? 'late' : ''}>{day.backlog > 0.1 ? `-${format(day.backlog)}` : 'OK'}</small>
+              </div>)}
+            </div>
+          </section>}
+
+          {!!result.processResults.length && <section className="stress-processes">
+            <div className="stress-section-title"><strong>Leitura por processo</strong><span>Onde o fluxo acumula, espera ou bloqueia</span></div>
+            <div className="stress-table-wrap"><table><thead><tr><th>Processo</th><th>Utilização</th><th>Maior fila</th><th>Sem material</th><th>Bloqueado</th><th>Parado</th></tr></thead><tbody>
+              {result.processResults.map((process) => <tr key={process.id} className={process.id === result.constraintId ? 'constraint' : ''} onClick={() => onFocus(process.id)}>
+                <td><strong>{process.label}</strong>{process.id === result.constraintId && <span>restrição</span>}</td>
+                <td>{format(process.utilizationPercent)}%</td><td>{format(process.maxQueue)} un</td>
+                <td>{format(process.starvationMinutes, 0)} min</td><td>{format(process.blockedMinutes, 0)} min</td><td>{format(process.lostMinutes, 0)} min</td>
+              </tr>)}
+            </tbody></table></div>
+          </section>}
+        </div>
+      </section>
     </div>
   );
 }
