@@ -138,16 +138,27 @@ function calculateCanvasSimulation(canvas: CanvasState) {
   const waitingTimeMin = waitingElements.reduce((sum, element) => sum + Math.max(0, Number(element.data.durationMin) || 0), 0);
   const waitingLeadTimeDays = canvas.assumptions.availableMinutesPerDay > 0 ? waitingTimeMin / canvas.assumptions.availableMinutesPerDay : 0;
   const processingTimeMin = processElements.reduce((sum, element) => sum + Math.max(0, Number(element.data.tc) || 0), 0) / 60;
-  const timelineSteps = Array.from({ length: Math.max(processElements.length, inventoryElements.length) }, (_, index) => ({
-    inventoryDays: inventoryElements[index]?.kind === 'waiting-time'
-      ? Math.max(0, Number(inventoryElements[index]?.data.durationMin) || 0) / canvas.assumptions.availableMinutesPerDay
-      : dailyDemand > 0
-        ? Math.max(0, Number(inventoryElements[index]?.data.qty) || 0) / dailyDemand
-        : 0,
-    processTimeMin: Math.max(0, Number(processElements[index]?.data.tc) || 0) / 60,
-    inventoryWidth: inventoryElements[index] ? elementDimensions(inventoryElements[index]).width : 60,
-    processWidth: processElements[index] ? elementDimensions(processElements[index]).width : 150,
-  }));
+  const timelineItems = [
+    ...processElements.map((element) => {
+      const size = elementDimensions(element);
+      return {
+        id: element.id,
+        type: 'process' as const,
+        x: element.x + size.width / 2,
+        width: size.width,
+        value: Math.max(0, Number(element.data.tc) || 0) / 60,
+      };
+    }),
+    ...inventoryElements.map((element) => {
+      const size = elementDimensions(element);
+      const value = element.kind === 'waiting-time'
+        ? Math.max(0, Number(element.data.durationMin) || 0) / canvas.assumptions.availableMinutesPerDay
+        : dailyDemand > 0
+          ? Math.max(0, Number(element.data.qty) || 0) / dailyDemand
+          : 0;
+      return { id: element.id, type: 'inventory' as const, x: element.x + size.width / 2, width: size.width, value };
+    }),
+  ].sort((a, b) => a.x - b.x);
   return {
     dailyDemand,
     taktTimeSec,
@@ -162,7 +173,7 @@ function calculateCanvasSimulation(canvas: CanvasState) {
     waitingLeadTimeDays,
     processingTimeMin,
     leadTimeDays: inventoryDays + waitingLeadTimeDays,
-    timelineSteps,
+    timelineItems,
     inventoryElements,
   };
 }
@@ -1365,8 +1376,8 @@ export default function App() {
   const timelineSourceElements = [...simulation.processElements, ...simulation.inventoryElements];
   const automaticTimelinePosition = timelineSourceElements.length
     ? {
-        x: Math.max(20, Math.min(...timelineSourceElements.map((element) => element.x)) - 150),
-        y: Math.max(...timelineSourceElements.map((element) => element.y)) + 225,
+        x: Math.min(...timelineSourceElements.map((element) => element.x)) - 150,
+        y: Math.max(...timelineSourceElements.map((element) => element.y + elementDimensions(element).height)) + 115,
       }
     : null;
 
@@ -1894,7 +1905,7 @@ export default function App() {
                   el={{ id: '__automatic-timeline__', kind: 'timeline', x: 0, y: 0, label: '', data: {} }}
                   selected={false}
                   onEdit={() => undefined}
-                  timelineSteps={simulation.timelineSteps}
+                  timelineItems={simulation.timelineItems.map((item) => ({ ...item, x: item.x - automaticTimelinePosition.x }))}
                   leadTimeDays={simulation.leadTimeDays}
                   processingTimeMin={simulation.processingTimeMin}
                   accentColor={canvas.themeColor}

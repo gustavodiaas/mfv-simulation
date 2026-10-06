@@ -23,11 +23,12 @@ interface SymProps {
   accentColor?: string;
   processLoadPercent?: number;
   processCapacityPerDay?: number;
-  timelineSteps?: {
-    inventoryDays: number;
-    processTimeMin: number;
-    inventoryWidth?: number;
-    processWidth?: number;
+  timelineItems?: {
+    id: string;
+    type: 'process' | 'inventory';
+    x: number;
+    width: number;
+    value: number;
   }[];
 }
 
@@ -585,17 +586,22 @@ export function NoteSymbol({ el, selected, onEdit }: SymProps) {
 }
 
 // ── Linha do tempo (dente de serra) ──────────────────────────────────────────
-export function TimelineSymbol({ selected, leadTimeDays = 0, processingTimeMin = 0, timelineSteps = [] }: SymProps) {
+export function TimelineSymbol({ selected, leadTimeDays = 0, processingTimeMin = 0, timelineItems = [] }: SymProps) {
   const labelWidth = 150;
   const summaryWidth = 220;
+  const connectorGap = 36;
   const topY = 24;
   const bottomY = 56;
-  const steps = timelineSteps.length ? timelineSteps : [{ inventoryDays: 0, processTimeMin: 0 }];
-  const stepWidths = steps.map((step) => ({
-    inventory: Math.max(60, step.inventoryWidth ?? 60),
-    process: Math.max(100, step.processWidth ?? 150),
-  }));
-  const summaryX = labelWidth + stepWidths.reduce((total, widths) => total + widths.inventory + widths.process, 0);
+  const items = [...timelineItems].sort((a, b) => a.x - b.x);
+  const segments = items.map((item, index) => {
+    const previousGap = index > 0 ? item.x - items[index - 1].x : Infinity;
+    const nextGap = index < items.length - 1 ? items[index + 1].x - item.x : Infinity;
+    const availableHalf = Math.max(24, (Math.min(previousGap, nextGap) - connectorGap) / 2);
+    const halfWidth = Math.max(24, Math.min(item.width / 2, availableHalf));
+    return { ...item, left: item.x - halfWidth, right: item.x + halfWidth, y: item.type === 'inventory' ? topY : bottomY };
+  });
+  const lastRight = segments.length ? segments[segments.length - 1].right : labelWidth;
+  const summaryX = Math.max(labelWidth + 80, lastRight + 55);
   const w = summaryX + summaryWidth;
   const h = 78;
   const format = (value: number, digits: number) => value.toLocaleString('pt-BR', {
@@ -608,28 +614,24 @@ export function TimelineSymbol({ selected, leadTimeDays = 0, processingTimeMin =
       <text x={labelWidth - 12} y={topY - 6} textAnchor="end" fontSize={10} fontWeight="700" fontFamily="Arial" fill="#1d2128">ESTOQUE EM DIAS</text>
       <text x={labelWidth - 12} y={bottomY + 16} textAnchor="end" fontSize={10} fontWeight="700" fontFamily="Arial" fill="#1d2128">T/C (MIN)</text>
 
-      {steps.map((step, index) => {
-        const widths = stepWidths[index];
-        const startX = labelWidth + stepWidths
-          .slice(0, index)
-          .reduce((total, previous) => total + previous.inventory + previous.process, 0);
-        const middleX = startX + widths.process;
-        const endX = middleX + widths.inventory;
-        return (
-          <g key={index}>
-            <path d={`M${startX},${bottomY} H${middleX} V${topY} H${endX} V${bottomY}`}
-              fill="none" stroke="#24262b" strokeWidth={1.4} />
-            <text x={middleX + widths.inventory / 2} y={topY - 7} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">
-              {format(step.inventoryDays, 2)}
-            </text>
-            <text x={middleX + widths.inventory / 2} y={topY + 10} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#35383e">Dias</text>
-            <text x={startX + widths.process / 2} y={bottomY - 7} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">
-              {format(step.processTimeMin, 1)}
-            </text>
-            <text x={startX + widths.process / 2} y={bottomY + 15} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#35383e">Minutos</text>
-          </g>
-        );
+      {segments.map((segment, index) => {
+        const previous = segments[index - 1];
+        const connectorMiddle = previous ? (previous.right + segment.left) / 2 : segment.left;
+        return <g key={segment.id}>
+          {previous && <path d={`M${previous.right},${previous.y} H${connectorMiddle} V${segment.y} H${segment.left}`}
+            fill="none" stroke="#24262b" strokeWidth={1.4} />}
+          <line x1={segment.left} y1={segment.y} x2={segment.right} y2={segment.y} stroke="#24262b" strokeWidth={1.4} />
+          <text x={segment.x} y={segment.type === 'inventory' ? topY - 7 : bottomY - 7} textAnchor="middle" fontSize={9} fontWeight="700" fontFamily="Arial" fill="#1d2128">
+            {format(segment.value, segment.type === 'inventory' ? 2 : 1)}
+          </text>
+          <text x={segment.x} y={segment.type === 'inventory' ? topY + 10 : bottomY + 15} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill="#35383e">
+            {segment.type === 'inventory' ? 'Dias' : 'Minutos'}
+          </text>
+        </g>;
       })}
+
+      {segments.length > 0 && <path d={`M${lastRight},${segments[segments.length - 1].y} H${summaryX - 24} V${bottomY} H${summaryX}`}
+        fill="none" stroke="#24262b" strokeWidth={1.4} />}
 
       <g transform={`translate(${summaryX},4)`}>
         <rect width={summaryWidth} height={52} fill="white" stroke="#24262b" strokeWidth={1.4} />
