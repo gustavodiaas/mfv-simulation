@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Activity, AlertTriangle, BarChart3, BookOpen, Calculator, CheckCircle2, Copy, Download, FileImage, FileText, GitCompareArrows,
   ImageDown, LayoutTemplate, Loader2, Map, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Plus,
-  Pause, Play, RotateCcw, Route, Save, Square, Trash2, X, ZoomIn, ZoomOut, Minus,
+  Pause, Play, RotateCcw, Route, Save, Sparkles, Square, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
 import {
   ARROW_KINDS, DEFAULT_TRUCK_COLOR, LIBRARY, makeId,
@@ -349,6 +349,23 @@ function calculateCanvasSimulation(canvas: CanvasState) {
 
 type LeanAdviceLevel = 'critical' | 'opportunity' | 'good';
 type LeanAdviceArea = 'fluxo' | 'pull' | 'marcapasso' | 'programacao' | 'kanban' | 'dados';
+type LeanFixKind = 'add-boundary' | 'add-resources' | 'remove-elements' | 'create-pull'
+  | 'set-pacemaker' | 'remove-arrow' | 'add-schedule' | 'add-kanban' | 'set-buffer-limit'
+  | 'size-kanban' | 'add-heijunka' | 'reduce-setup' | 'increase-pull-limit';
+
+interface LeanFix {
+  kind: LeanFixKind;
+  label: string;
+  change: string;
+  targetId?: string;
+  targetIds?: string[];
+  processId?: string;
+  upstreamId?: string;
+  downstreamId?: string;
+  elementKind?: 'raw-material' | 'customer';
+  controlKind?: 'supermarket' | 'fifo';
+  value?: number;
+}
 
 interface LeanAdvice {
   id: string;
@@ -357,8 +374,19 @@ interface LeanAdvice {
   title: string;
   why: string;
   action: string;
+  expected?: string;
+  fix?: LeanFix;
   targetId?: string;
   targetLabel?: string;
+}
+
+interface AppliedLeanFix {
+  id: string;
+  title: string;
+  reason: string;
+  change: string;
+  expected: string;
+  impact: string;
 }
 
 function centerOf(element: CanvasElement) {
@@ -388,11 +416,15 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
     id: 'missing-entry', level: 'critical', area: 'dados', title: 'Entrada do fluxo não definida',
     why: 'Sem matéria-prima o assistente não consegue avaliar o fluxo completo de porta a porta.',
     action: 'Adicione o estoque de matéria-prima no início do MFV.',
+    expected: 'O fluxo passa a ter uma origem física definida e pode ser simulado de porta a porta.',
+    fix: { kind: 'add-boundary', elementKind: 'raw-material', label: 'Adicionar matéria-prima', change: 'Criar a entrada de matéria-prima antes do primeiro processo.' },
   });
   if (!simulation.finalCustomer) advice.push({
     id: 'missing-customer', level: 'critical', area: 'dados', title: 'Cliente final não definido',
     why: 'O valor deve ser analisado até o cliente que puxa a demanda.',
     action: 'Adicione o cliente final no término do MFV.',
+    expected: 'O fluxo ganha um ponto final que representa quem consome e puxa a demanda.',
+    fix: { kind: 'add-boundary', elementKind: 'customer', label: 'Adicionar cliente final', change: 'Criar o cliente final depois do último processo.' },
   });
   if (!processes.length) advice.push({
     id: 'missing-processes', level: 'critical', area: 'dados', title: 'Fluxo sem processos',
@@ -407,10 +439,14 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
   }));
   simulation.overloadedProcesses.forEach((metric) => {
     const guidance = bottleneckGuidance(metric, canvas.assumptions);
+    const currentResources = Math.max(1, Number(metric.element.data.recurso) || 1);
+    const requiredResources = Math.max(currentResources + 1, Math.ceil(currentResources * metric.loadPercent / 100));
     advice.push({
       id: `overload-${metric.element.id}`, level: 'critical', area: 'fluxo', title: `${metric.element.label}: capacidade abaixo da necessidade`,
       why: `A carga calculada é ${metric.loadPercent.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% e o processo não sustenta a demanda deste cenário.`,
       action: guidance.actions.join(' '), targetId: metric.element.id, targetLabel: metric.element.label,
+      expected: `A capacidade paralela simulada sobe de ${currentResources} para ${requiredResources} recurso(s), reduzindo a carga para perto ou abaixo de 100%.`,
+      fix: { kind: 'add-resources', targetId: metric.element.id, value: requiredResources, label: `Simular ${requiredResources} recursos`, change: `Alterar recursos paralelos de ${currentResources} para ${requiredResources}.` },
     });
   });
 
@@ -446,6 +482,8 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
           ? 'Teste remover o estoque intermediário e transferir uma peça diretamente ao processo seguinte.'
           : 'Confirme proximidade física, trabalho padronizado e transferência de uma peça por vez.',
         targetId: between[0]?.id ?? upstream.id, targetLabel: between[0]?.label ?? upstream.label,
+        expected: between.length ? 'O estoque intermediário é retirado do cenário futuro para testar transferência direta entre as etapas.' : undefined,
+        fix: between.length ? { kind: 'remove-elements', targetIds: between.map((element) => element.id), label: 'Testar fluxo contínuo', change: `Remover ${between.length} estoque(s)/espera(s) entre os dois processos.` } : undefined,
       });
     } else if (!pullControl && upstreamMetric?.valid && downstreamMetric?.valid) {
       const preferFifo = upstream.kind === 'shared-process' || downstream.kind === 'shared-process';
@@ -459,6 +497,8 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
           ? 'Crie uma FIFO com limite máximo e preserve a sequência entre os processos.'
           : 'Crie um supermercado com reposição puxada pelo consumo do processo seguinte.',
         targetId: between[0]?.id ?? upstream.id, targetLabel: between[0]?.label ?? upstream.label,
+        expected: `O WIP entre as etapas passa a ter limite explícito e sinal de reposição, evitando produção sem consumo.`,
+        fix: { kind: 'create-pull', upstreamId: upstream.id, downstreamId: downstream.id, controlKind: preferFifo ? 'fifo' : 'supermarket', label: `Criar ${preferFifo ? 'FIFO' : 'supermercado'} puxado`, change: `Adicionar ${preferFifo ? 'uma FIFO' : 'um supermercado'}, Kanban e limites iniciais entre os processos.` },
       });
     }
   }
@@ -469,12 +509,16 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
     why: 'A programação deve ser enviada a um único ponto; o processo mais a jusante é o candidato inicial.',
     action: `Adicione o marcapasso e vincule-o a ${recommendedPacemaker.label}.`,
     targetId: recommendedPacemaker.id, targetLabel: recommendedPacemaker.label,
+    expected: 'A programação passa a ter um único ponto de liberação próximo do cliente.',
+    fix: { kind: 'set-pacemaker', processId: recommendedPacemaker.id, label: 'Definir marcapasso', change: `Criar o marcador e vinculá-lo a ${recommendedPacemaker.label}.` },
   });
   if (recommendedPacemaker && simulation.pacemaker && simulation.pacemaker.id !== recommendedPacemaker.id) advice.push({
     id: 'pacemaker-position', level: 'opportunity', area: 'marcapasso', title: 'Revisar a posição do marcapasso',
     why: `${simulation.pacemaker.label} está programado, mas ${recommendedPacemaker.label} é o processo produtivo mais próximo do cliente.`,
     action: `Valide no gemba; se não houver uma razão específica, programe somente ${recommendedPacemaker.label}.`,
     targetId: recommendedPacemaker.id, targetLabel: recommendedPacemaker.label,
+    expected: 'O cenário concentra a programação no último processo produtivo antes do cliente.',
+    fix: { kind: 'set-pacemaker', processId: recommendedPacemaker.id, label: 'Mover marcapasso', change: `Vincular o marcapasso existente a ${recommendedPacemaker.label}.` },
   });
   if (recommendedPacemaker && simulation.pacemaker?.id === recommendedPacemaker.id) advice.push({
     id: 'pacemaker-ok', level: 'good', area: 'marcapasso', title: `Marcapasso coerente: ${recommendedPacemaker.label}`,
@@ -499,12 +543,16 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
     why: 'Programar vários processos cria empurrada, prioridades conflitantes e excesso de WIP.',
     action: 'Remova esta programação direta e faça o processo responder ao fluxo ou ao sinal Kanban.',
     targetId: item.arrow.id, targetLabel: item.process.label,
+    expected: 'O processo deixa de receber uma programação paralela que poderia empurrar produção.',
+    fix: { kind: 'remove-arrow', targetId: item.arrow.id, label: 'Remover programação paralela', change: `Excluir a seta de programação direta para ${item.process.label}.` },
   }));
   if (simulation.pacemaker && !scheduledProcesses.some((item) => item.process.id === simulation.pacemaker?.id)) advice.push({
     id: 'schedule-pacemaker', level: 'opportunity', area: 'programacao', title: 'Marcapasso sem programação visível',
     why: 'O mapa não mostra como o Controle da Produção libera trabalho para o marcapasso.',
     action: 'Conecte o Controle da Produção ao marcapasso com uma seta de programação.',
     targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
+    expected: 'O MFV passa a mostrar visualmente o único elo programado pelo Controle da Produção.',
+    fix: { kind: 'add-schedule', processId: simulation.pacemaker.id, label: 'Conectar programação', change: `Criar uma seta de programação do Controle da Produção para ${simulation.pacemaker.label}.` },
   });
 
   simulation.pullBuffers.forEach((buffer) => {
@@ -518,11 +566,15 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
       why: 'O estoque controlado existe, mas não há um sinal próximo que autorize a reposição.',
       action: 'Adicione Kanban de retirada/produção e informe a quantidade de cartões.',
       targetId: buffer.id, targetLabel: buffer.label,
+      expected: 'O estoque controlado ganha um sinal explícito de reposição e um limite calculável.',
+      fix: { kind: 'add-kanban', targetId: buffer.id, label: 'Adicionar Kanban', change: `Adicionar um Kanban de retirada próximo a ${buffer.label} e dimensioná-lo com os dados atuais.` },
     });
     if (Number(buffer.data.qty) <= 0) advice.push({
       id: `limit-missing-${buffer.id}`, level: 'critical', area: 'pull', title: `${buffer.label}: limite não informado`,
       why: 'Sem limite máximo, o controle puxado não consegue impedir o crescimento do WIP.',
       action: 'Informe o limite de unidades permitido neste ponto.', targetId: buffer.id, targetLabel: buffer.label,
+      expected: 'A simulação passa a bloquear liberações quando o limite do estoque controlado é atingido.',
+      fix: { kind: 'set-buffer-limit', targetId: buffer.id, value: Math.max(1, Math.ceil(simulation.weightedPackSize), nearbyKanban ? calculateKanbanSizing(nearbyKanban, canvas.assumptions).authorizedUnits : 0), label: 'Definir limite inicial', change: `Definir um limite inicial que comporte a embalagem e os cartões do circuito.` },
     });
   });
   simulation.kanbanSizing.filter((sizing) => sizing.cards <= 0).forEach(({ element: kanban }) => advice.push({
@@ -530,11 +582,15 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
     why: 'Um cartão sem quantidade não define o limite de trabalho autorizado.',
     action: 'Informe o produto, o tempo de reposição e a segurança para calcular a quantidade recomendada.',
     targetId: kanban.id, targetLabel: kanban.label,
+    expected: 'O circuito passa a autorizar uma quantidade finita de unidades e pode controlar a liberação.',
+    fix: { kind: 'size-kanban', targetId: kanban.id, value: Math.max(1, calculateKanbanSizing({ ...kanban, data: { ...kanban.data, replenishmentMin: Number(kanban.data.replenishmentMin) || 60, safetyPercent: Number(kanban.data.safetyPercent) || 10 } }, canvas.assumptions).recommendedCards), label: 'Dimensionar Kanban', change: 'Assumir reposição inicial de 60 min e segurança de 10%, calcular e aplicar os cartões.' },
   }));
   simulation.kanbanSizing.filter((sizing) => sizing.cards > 0 && sizing.replenishmentMin <= 0).forEach(({ element: kanban }) => advice.push({
     id: `replenishment-missing-${kanban.id}`, level: 'opportunity', area: 'dados', title: 'Tempo de reposição do Kanban não informado',
     why: 'Sem o ciclo completo de coleta, produção e entrega, não é possível validar a quantidade de cartões.',
     action: 'Cronometre o tempo de reposição e informe-o no cartão Kanban.', targetId: kanban.id, targetLabel: kanban.label,
+    expected: 'O cartão ganha uma hipótese explícita para permitir o cálculo; o valor ainda deve ser validado no gemba.',
+    fix: { kind: 'size-kanban', targetId: kanban.id, label: 'Usar hipótese de 60 min', change: 'Definir provisoriamente reposição de 60 min e segurança de 10%, recalculando os cartões.' },
   }));
   simulation.kanbanSizing.filter((sizing) => sizing.recommendedCards > 0 && sizing.cards > 0 && sizing.cards < sizing.recommendedCards)
     .forEach((sizing) => advice.push({
@@ -542,6 +598,8 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
       why: `${sizing.cards} cartão(ões) autorizam ${sizing.authorizedUnits} unidades, abaixo dos ${sizing.recommendedCards} cartões calculados para a reposição.`,
       action: `Teste ${sizing.recommendedCards} cartões (${sizing.recommendedUnits} unidades) e valide o consumo real.`,
       targetId: sizing.element.id, targetLabel: sizing.element.label,
+      expected: `O circuito passa a cobrir o consumo durante a reposição com ${sizing.recommendedCards} cartões.`,
+      fix: { kind: 'size-kanban', targetId: sizing.element.id, value: sizing.recommendedCards, label: 'Aplicar recomendação', change: `Alterar de ${sizing.cards} para ${sizing.recommendedCards} cartões.` },
     }));
   simulation.kanbanSizing.filter((sizing) => sizing.recommendedCards > 0 && sizing.cards > sizing.recommendedCards * 1.5)
     .forEach((sizing) => advice.push({
@@ -549,12 +607,16 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
       why: `${sizing.cards} cartões foram configurados, enquanto o cálculo indica ${sizing.recommendedCards}.`,
       action: 'Reduza gradualmente o número de cartões e acompanhe rupturas antes de consolidar o novo limite.',
       targetId: sizing.element.id, targetLabel: sizing.element.label,
+      expected: `O WIP autorizado cai de ${sizing.authorizedUnits} para ${sizing.recommendedUnits} unidades, preservando a cobertura calculada.`,
+      fix: { kind: 'size-kanban', targetId: sizing.element.id, value: sizing.recommendedCards, label: 'Reduzir cartões', change: `Alterar de ${sizing.cards} para ${sizing.recommendedCards} cartões.` },
     }));
 
   if (simulation.pacemaker && !simulation.heijunkaBoxes.length) advice.push({
     id: 'heijunka-missing', level: 'opportunity', area: 'marcapasso', title: 'Nivelamento ainda não representado',
     why: 'O marcapasso existe, mas o mapa não mostra como volume e mix serão nivelados.',
     action: 'Adicione um Heijunka Box próximo ao marcapasso.', targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
+    expected: 'O cenário passa a representar o nivelamento de volume e mix por intervalos de pitch.',
+    fix: { kind: 'add-heijunka', processId: simulation.pacemaker.id, label: 'Adicionar Heijunka Box', change: `Criar o quadro próximo a ${simulation.pacemaker.label}, com linhas para os produtos ativos.` },
   });
   if (simulation.activeProductCount > 1 && simulation.pacemaker) {
     if (simulation.epeiDays === Infinity) advice.push({
@@ -562,12 +624,16 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
       why: 'Depois de produzir a demanda diária, não sobra capacidade suficiente para realizar os setups do ciclo completo.',
       action: 'Reduza setup, alivie a carga do marcapasso ou amplie o tempo disponível antes de nivelar o mix.',
       targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
+      expected: 'A capacidade adicional abre espaço para a demanda e para as trocas; o EPEI será recalculado em seguida.',
+      fix: { kind: 'add-resources', targetId: simulation.pacemaker.id, value: Math.max((Number(simulation.pacemaker.data.recurso) || 1) + 1, Math.ceil((Number(simulation.pacemaker.data.recurso) || 1) * (simulation.pacemakerMetric?.loadPercent || 100) / 90)), label: 'Abrir capacidade no marcapasso', change: 'Elevar os recursos paralelos até a carga estimada ficar próxima de 90%, reservando tempo para setups.' },
     });
     else if (simulation.epeiDays > 1) advice.push({
       id: 'epei-long', level: 'opportunity', area: 'programacao', title: `EPEI estimado em ${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dias`,
       why: 'O marcapasso não consegue completar todo o mix diariamente com o setup atual.',
       action: 'Use SMED para reduzir setup e aproxime o EPEI de um dia ou menos.',
       targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
+      expected: 'O EPEI simulado se aproxima de um dia, permitindo percorrer o mix com maior frequência.',
+      fix: { kind: 'reduce-setup', targetId: simulation.pacemaker.id, value: Math.max(0.1, (Number(simulation.pacemaker.data.setup) || 0) / simulation.epeiDays * 0.95), label: 'Simular EPEI de 1 dia', change: `Reduzir o setup de ${Number(simulation.pacemaker.data.setup) || 0} para uma meta calculada que permita percorrer o mix diariamente.` },
     });
     else if (simulation.epeiDays > 0) advice.push({
       id: 'epei-ok', level: 'good', area: 'programacao', title: `Mix nivelável · EPEI ${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dia(s)`,
@@ -593,10 +659,155 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
     why: `O limite é ${simulation.pullWipLimit}, mas a embalagem média libera ${Math.ceil(simulation.weightedPackSize)} unidades por pitch.`,
     action: 'Ajuste a quantidade por embalagem ou dimensione o limite puxado para comportar ao menos uma reposição completa.',
     targetId: simulation.pullBuffers[0]?.id, targetLabel: simulation.pullBuffers[0]?.label,
+    expected: 'Ao menos uma embalagem completa consegue entrar no circuito sem ficar bloqueada na origem.',
+    fix: simulation.pullBuffers[0] ? { kind: 'increase-pull-limit', targetId: simulation.pullBuffers[0].id, value: Math.ceil(simulation.weightedPackSize), label: 'Ajustar limite mínimo', change: `Elevar o limite para ${Math.ceil(simulation.weightedPackSize)} unidades e permitir uma embalagem completa.` } : undefined,
   });
 
   const rank: Record<LeanAdviceLevel, number> = { critical: 0, opportunity: 1, good: 2 };
   return advice.sort((left, right) => rank[left.level] - rank[right.level]);
+}
+
+function applyLeanFix(canvas: CanvasState, advice: LeanAdvice): CanvasState {
+  const fix = advice.fix;
+  if (!fix) return canvas;
+  const next = cloneCanvas(canvas);
+  const findElement = (id?: string) => next.elements.find((element) => element.id === id);
+  const processElements = next.elements.filter((element) => ['process','shared-process'].includes(element.kind)).sort((a, b) => a.x - b.x);
+  const createLibraryElement = (kind: ElementKind, x: number, y: number, label?: string): CanvasElement => {
+    const item = LIBRARY.find((candidate) => candidate.kind === kind);
+    return { id: `${kind}-${makeId()}`, kind, x, y, label: label ?? item?.defaultLabel ?? kind, data: { ...(item?.defaultData ?? {}) } };
+  };
+
+  if (fix.kind === 'add-boundary' && fix.elementKind) {
+    if (fix.elementKind === 'raw-material') {
+      const first = processElements[0];
+      next.elements.push(createLibraryElement('raw-material', first ? first.x - 190 : 80, first ? first.y + 20 : 260, 'Matéria-prima'));
+    } else {
+      const last = processElements[processElements.length - 1];
+      next.elements.push(createLibraryElement('customer', last ? last.x + elementDimensions(last).width + 190 : 1500, last ? Math.max(20, last.y - 190) : 40, 'Cliente final'));
+    }
+  }
+  if (fix.kind === 'add-resources') {
+    const target = findElement(fix.targetId);
+    if (target) target.data.recurso = Math.max(1, Math.round(fix.value || 1));
+  }
+  if (fix.kind === 'remove-elements' && fix.targetIds?.length) {
+    const removedControls = next.elements.filter((element) => fix.targetIds!.includes(element.id));
+    const dependentKanbanIds = next.elements.filter((element) => KANBAN_CONTROL_KINDS.includes(element.kind)
+      && removedControls.some((control) => Math.hypot(centerOf(element).x - centerOf(control).x, centerOf(element).y - centerOf(control).y) <= 180))
+      .map((element) => element.id);
+    const removeIds = new Set([...fix.targetIds, ...dependentKanbanIds]);
+    next.elements = next.elements.filter((element) => !removeIds.has(element.id));
+    next.arrows = next.arrows.filter((arrow) => !removeIds.has(arrow.startAnchor?.elementId ?? '') && !removeIds.has(arrow.endAnchor?.elementId ?? ''));
+  }
+  if (fix.kind === 'create-pull') {
+    const upstream = findElement(fix.upstreamId);
+    const downstream = findElement(fix.downstreamId);
+    if (upstream && downstream && fix.controlKind) {
+      const upstreamCenter = centerOf(upstream);
+      const downstreamCenter = centerOf(downstream);
+      const control = createLibraryElement(fix.controlKind, (upstreamCenter.x + downstreamCenter.x) / 2 - 40, Math.max(upstream.y, downstream.y) + 45, fix.controlKind === 'fifo' ? 'FIFO' : 'Supermercado');
+      const kanban = createLibraryElement('kanban-withdrawal', control.x + 10, control.y - 70, 'Kanban\nretirada');
+      kanban.data.replenishmentMin = 60;
+      kanban.data.safetyPercent = 10;
+      const sizing = calculateKanbanSizing(kanban, next.assumptions);
+      kanban.data.qty = Math.max(1, sizing.recommendedCards);
+      control.data.qty = Math.max(sizing.recommendedUnits, Math.ceil(calculateScenario(next.assumptions).weightedPackSize));
+      next.elements.push(control, kanban);
+      next.arrows.push({
+        id: `pull-${makeId()}`, kind: 'arrow-pull',
+        x1: downstream.x, y1: downstreamCenter.y,
+        x2: upstream.x + elementDimensions(upstream).width, y2: upstreamCenter.y,
+        startAnchor: { elementId: downstream.id, x: 0, y: .5 },
+        endAnchor: { elementId: upstream.id, x: 1, y: .5 },
+        label: 'Reposição puxada',
+      });
+    }
+  }
+  if (fix.kind === 'set-pacemaker' && fix.processId) {
+    const process = findElement(fix.processId);
+    if (process) {
+      const markers = next.elements.filter((element) => element.kind === 'pacemaker');
+      if (markers.length) {
+        const keep = markers[0];
+        keep.data.processId = process.id;
+        keep.label = process.label;
+        keep.x = process.x + elementDimensions(process).width / 2 - 59;
+        keep.y = process.y - 82;
+        const extraIds = new Set(markers.slice(1).map((marker) => marker.id));
+        next.elements = next.elements.filter((element) => !extraIds.has(element.id));
+      } else {
+        const marker = createLibraryElement('pacemaker', process.x + elementDimensions(process).width / 2 - 59, process.y - 82, process.label);
+        marker.data.processId = process.id;
+        next.elements.push(marker);
+      }
+    }
+  }
+  if (fix.kind === 'remove-arrow' && fix.targetId) next.arrows = next.arrows.filter((arrow) => arrow.id !== fix.targetId);
+  if (fix.kind === 'add-schedule' && fix.processId) {
+    const process = findElement(fix.processId);
+    const planning = findElement(FIXED_PLANNING_ID);
+    if (process && planning) {
+      const planningSize = elementDimensions(planning);
+      const processSize = elementDimensions(process);
+      next.arrows.push({
+        id: `schedule-${makeId()}`, kind: 'arrow-schedule', label: 'Programação',
+        x1: planning.x + planningSize.width / 2, y1: planning.y + planningSize.height,
+        x2: process.x + processSize.width / 2, y2: process.y,
+        startAnchor: { elementId: planning.id, x: .5, y: 1 },
+        endAnchor: { elementId: process.id, x: .5, y: 0 },
+      });
+    }
+  }
+  if (fix.kind === 'add-kanban' && fix.targetId) {
+    const buffer = findElement(fix.targetId);
+    if (buffer) {
+      const kanban = createLibraryElement('kanban-withdrawal', buffer.x + elementDimensions(buffer).width / 2 - 30, buffer.y - 66, 'Kanban\nretirada');
+      const sizing = calculateKanbanSizing(kanban, next.assumptions);
+      kanban.data.qty = Math.max(1, sizing.recommendedCards);
+      buffer.data.qty = Math.max(Number(buffer.data.qty) || 0, sizing.recommendedUnits, Math.ceil(calculateScenario(next.assumptions).weightedPackSize));
+      next.elements.push(kanban);
+    }
+  }
+  if (fix.kind === 'set-buffer-limit') {
+    const buffer = findElement(fix.targetId);
+    if (buffer) buffer.data.qty = Math.max(1, Math.ceil(fix.value || 1));
+  }
+  if (fix.kind === 'size-kanban') {
+    const kanban = findElement(fix.targetId);
+    if (kanban) {
+      kanban.data.replenishmentMin = Math.max(1, Number(kanban.data.replenishmentMin) || 60);
+      kanban.data.safetyPercent = Math.max(0, Number(kanban.data.safetyPercent) || 10);
+      const sizing = calculateKanbanSizing(kanban, next.assumptions);
+      kanban.data.qty = Math.max(1, Math.round(fix.value || sizing.recommendedCards || 1));
+    }
+  }
+  if (fix.kind === 'add-heijunka' && fix.processId) {
+    const process = findElement(fix.processId);
+    if (process) {
+      const scenario = calculateScenario(next.assumptions);
+      const heijunka = createLibraryElement('heijunka', process.x + elementDimensions(process).width / 2 - 70, process.y - 190, 'Heijunka');
+      heijunka.data.rows = Math.max(1, scenario.productMetrics.filter((item) => item.monthlyDemand > 0).length);
+      heijunka.data.cols = Math.min(6, Math.max(1, Math.round((next.assumptions.availableMinutesPerDay * 60) / Math.max(1, scenario.pitchTimeSec))));
+      next.elements.push(heijunka);
+    }
+  }
+  if (fix.kind === 'reduce-setup') {
+    const process = findElement(fix.targetId);
+    if (process) process.data.setup = Math.max(0.1, Number((fix.value || .1).toFixed(2)));
+  }
+  if (fix.kind === 'increase-pull-limit') {
+    const minimum = Math.max(1, Math.ceil(fix.value || 1));
+    next.elements.forEach((element) => {
+      if (['supermarket','fifo'].includes(element.kind)) element.data.qty = Math.max(minimum, Number(element.data.qty) || 0);
+      if (KANBAN_CONTROL_KINDS.includes(element.kind)) {
+        const sizing = calculateKanbanSizing(element, next.assumptions);
+        element.data.qty = Math.max(sizing.cards, Math.ceil(minimum / sizing.packSize));
+      }
+    });
+  }
+  next.arrows = syncAnchoredArrows(next.arrows, next.elements);
+  return normalizeCanvas(next);
 }
 
 function calculateLiveFlow(simulation: ReturnType<typeof calculateCanvasSimulation>, assumptions: ScenarioAssumptions, elapsedSec: number) {
@@ -2053,9 +2264,13 @@ function ComparisonModal({ workspace, onSelect, onClose }: { workspace: CanvasWo
   );
 }
 
-function LeanAssistantModal({ advice, onFocus, onClose }: {
+function LeanAssistantModal({ advice, activeKind, appliedFixes, onFocus, onApply, onUndo, onClose }: {
   advice: LeanAdvice[];
+  activeKind: ActiveKind;
+  appliedFixes: AppliedLeanFix[];
   onFocus: (targetId: string) => void;
+  onApply: (advice: LeanAdvice) => void;
+  onUndo: () => void;
   onClose: () => void;
 }) {
   const critical = advice.filter((item) => item.level === 'critical').length;
@@ -2076,7 +2291,7 @@ function LeanAssistantModal({ advice, onFocus, onClose }: {
       <button className="editor-backdrop" onClick={onClose} aria-label="Fechar Assistente Lean" />
       <section className="editor-window lean-assistant-modal">
         <header>
-          <div><h2 id="lean-assistant-title">Assistente Lean</h2><p>Leitura automática da coerência do Estado atual ou futuro.</p></div>
+          <div><h2 id="lean-assistant-title">Assistente Lean</h2><p>{activeKind === 'future' ? 'Diagnostique, simule a correção e entenda o efeito no Estado Futuro.' : 'Diagnóstico do Estado Atual; correções automáticas ficam disponíveis no Estado Futuro.'}</p></div>
           <button className="icon-button" onClick={onClose}><X size={20}/></button>
         </header>
         <div className="lean-assistant-summary">
@@ -2085,7 +2300,17 @@ function LeanAssistantModal({ advice, onFocus, onClose }: {
           <div><strong>{opportunities}</strong><span>oportunidades</span></div>
           <div><strong>{confirmed}</strong><span>pontos coerentes</span></div>
         </div>
-        <div className="lean-assistant-note"><BookOpen size={14}/><span>As sugestões usam regras de MFV. Confirme tempos, restrições e decisões no gemba antes de implantar.</span></div>
+        <div className={`lean-assistant-note ${activeKind === 'future' ? 'future' : ''}`}><BookOpen size={14}/><span>{activeKind === 'future' ? 'As ações alteram somente este cenário futuro. Hipóteses automáticas ficam explicadas e devem ser confirmadas no gemba.' : 'O Estado Atual é preservado como retrato do processo. Abra um cenário futuro para o assistente aplicar melhorias sem alterar a realidade registrada.'}</span></div>
+        {appliedFixes.length > 0 && <details className="lean-applied-log" open>
+          <summary><CheckCircle2 size={14}/>Alterações feitas pelo assistente <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onUndo(); }}>Desfazer última</button><b>{appliedFixes.length}</b></summary>
+          <div>{appliedFixes.map((item) => <article key={item.id}>
+            <strong>{item.title}</strong>
+            <p><b>Por que:</b> {item.reason}</p>
+            <p><b>Alteração:</b> {item.change}</p>
+            <p><b>Efeito esperado:</b> {item.expected}</p>
+            <p><b>Resultado recalculado:</b> {item.impact}</p>
+          </article>)}</div>
+        </details>}
         <div className="lean-advice-list">
           {advice.length === 0 ? <div className="lean-advice-empty"><CheckCircle2 size={28}/><strong>Nenhuma incoerência encontrada</strong><span>Continue validando o mapa com quem executa o processo.</span></div> : advice.map((item) => (
             <article key={item.id} className={`lean-advice-card ${item.level}`}>
@@ -2096,7 +2321,16 @@ function LeanAssistantModal({ advice, onFocus, onClose }: {
               <h3>{item.title}</h3>
               <div className="lean-advice-copy"><span>Por quê</span><p>{item.why}</p></div>
               <div className="lean-advice-copy action"><span>O que fazer</span><p>{item.action}</p></div>
-              {item.targetId && <button className="lean-focus-button" onClick={() => onFocus(item.targetId!)}><Route size={13}/>Mostrar no MFV{item.targetLabel ? ` · ${item.targetLabel}` : ''}</button>}
+              {item.fix && <div className="lean-fix-preview">
+                <span>O assistente vai alterar</span><p>{item.fix.change}</p>
+                {item.expected && <><span>Resultado esperado</span><p>{item.expected}</p></>}
+              </div>}
+              <div className="lean-advice-actions">
+                {item.targetId && <button className="lean-focus-button" onClick={() => onFocus(item.targetId!)}><Route size={13}/>Mostrar no MFV{item.targetLabel ? ` · ${item.targetLabel}` : ''}</button>}
+                {item.fix && activeKind === 'future' && <button className="lean-apply-button" onClick={() => onApply(item)}><Sparkles size={13}/>{item.fix.label}</button>}
+                {item.fix && activeKind === 'current' && <span className="lean-future-only">Disponível no Estado Futuro</span>}
+                {!item.fix && item.level !== 'good' && <span className="lean-manual-only">Exige medição ou decisão humana — não será inventado pelo assistente</span>}
+              </div>
             </article>
           ))}
         </div>
@@ -2164,6 +2398,8 @@ export default function App() {
   const [scenarioCreateOpen, setScenarioCreateOpen] = useState(false);
   const [comparisonOpen, setComparisonOpen] = useState(false);
   const [leanAssistantOpen, setLeanAssistantOpen] = useState(false);
+  const [appliedLeanFixes, setAppliedLeanFixes] = useState<AppliedLeanFix[]>([]);
+  const [leanUndoStack, setLeanUndoStack] = useState<CanvasState[]>([]);
   const [liveRunning, setLiveRunning] = useState(false);
   const [liveElapsedSec, setLiveElapsedSec] = useState(0);
   const [liveSpeed, setLiveSpeed] = useState(300);
@@ -2177,6 +2413,8 @@ export default function App() {
     setEditingEl(null);
     setEditingArrow(null);
     setLeanAssistantOpen(false);
+    setAppliedLeanFixes([]);
+    setLeanUndoStack([]);
     setLiveRunning(false);
     setLiveElapsedSec(0);
   }, [activeKind, workspace.activeFutureId]);
@@ -2232,6 +2470,38 @@ export default function App() {
     }
     setSelectedId(targetId);
     setLeanAssistantOpen(false);
+  };
+
+  const applyAssistantFix = (item: LeanAdvice) => {
+    if (activeKind !== 'future' || !item.fix) return;
+    const before = calculateCanvasSimulation(canvas);
+    const updated = applyLeanFix(canvas, item);
+    const after = calculateCanvasSimulation(updated);
+    const impactParts: string[] = [];
+    if (before.overloadedProcesses.length !== after.overloadedProcesses.length) impactParts.push(`quebras ${before.overloadedProcesses.length} → ${after.overloadedProcesses.length}`);
+    if (before.bottleneckCapacity !== after.bottleneckCapacity) impactParts.push(`capacidade ${before.bottleneckCapacity.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} → ${after.bottleneckCapacity.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un/dia`);
+    if (before.pullWipLimit !== after.pullWipLimit) impactParts.push(`WIP puxado ${before.pullWipLimit || '—'} → ${after.pullWipLimit || '—'} un`);
+    if (before.pacemaker?.id !== after.pacemaker?.id) impactParts.push(`marcapasso ${before.pacemaker?.label || 'não definido'} → ${after.pacemaker?.label || 'não definido'}`);
+    if (before.epeiDays !== after.epeiDays) impactParts.push(`EPEI ${Number.isFinite(before.epeiDays) ? before.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : 'sem capacidade'} → ${Number.isFinite(after.epeiDays) ? after.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : 'sem capacidade'} dia(s)`);
+    if (canvas.elements.length !== updated.elements.length) impactParts.push(`elementos ${canvas.elements.length} → ${updated.elements.length}`);
+    const impact = impactParts.length ? impactParts.join(' · ') : 'A estrutura foi ajustada; os indicadores principais permaneceram estáveis.';
+    setLeanUndoStack((previous) => [cloneCanvas(canvas), ...previous].slice(0, 12));
+    setCanvas(updated);
+    setAppliedLeanFixes((previous) => [{
+      id: `${item.id}-${makeId()}`,
+      title: item.title,
+      reason: item.why,
+      change: item.fix!.change,
+      expected: item.expected ?? item.action,
+      impact,
+    }, ...previous].slice(0, 12));
+  };
+
+  const undoAssistantFix = () => {
+    if (activeKind !== 'future' || !leanUndoStack.length) return;
+    setCanvas(leanUndoStack[0]);
+    setLeanUndoStack((previous) => previous.slice(1));
+    setAppliedLeanFixes((previous) => previous.slice(1));
   };
 
   useEffect(() => {
@@ -2882,7 +3152,8 @@ export default function App() {
         onClose={() => setDemandOpen(false)} />}
       {scenarioCreateOpen && <ScenarioCreateModal onCreate={createScenario} onClose={() => setScenarioCreateOpen(false)} />}
       {comparisonOpen && <ComparisonModal workspace={workspace} onSelect={selectFuture} onClose={() => setComparisonOpen(false)} />}
-      {leanAssistantOpen && <LeanAssistantModal advice={leanAdvice} onFocus={focusAssistantTarget} onClose={() => setLeanAssistantOpen(false)} />}
+      {leanAssistantOpen && <LeanAssistantModal advice={leanAdvice} activeKind={activeKind} appliedFixes={appliedLeanFixes}
+        onFocus={focusAssistantTarget} onApply={applyAssistantFix} onUndo={undoAssistantFix} onClose={() => setLeanAssistantOpen(false)} />}
     </div>
   );
 }

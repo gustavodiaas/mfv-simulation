@@ -550,6 +550,16 @@ g:hover > .edit-btn-group { opacity: 1; }
 .lean-assistant-summary .lean-score { color: white; background: linear-gradient(145deg,#082d50,#0878c9); border: 0; }
 .lean-assistant-summary .lean-score strong, .lean-assistant-summary .lean-score span { color: white; }
 .lean-assistant-note { margin: 0 20px 10px; padding: 8px 10px; display: flex; align-items: center; gap: 7px; color: #685516; background: #fff8dd; border-radius: 9px; font-size: 9px; }
+.lean-assistant-note.future { color: #11583a; background: #eaf8f0; }
+.lean-applied-log { margin: 0 20px 10px; overflow: hidden; border: 1px solid #cdebd9; border-radius: 10px; background: #f1fbf5; }
+.lean-applied-log summary { display: flex; align-items: center; gap: 7px; padding: 9px 11px; color: #14683f; font-size: 9px; font-weight: 800; cursor: pointer; list-style: none; }
+.lean-applied-log summary button { margin-left: auto; padding: 4px 7px; color: #14683f; background: white; border: 1px solid #bfe0cc; border-radius: 6px; font-size: 8px; font-weight: 750; cursor: pointer; }
+.lean-applied-log summary b { min-width: 18px; height: 18px; display: grid; place-items: center; margin-left: auto; color: white; background: #218653; border-radius: 9px; font-size: 8px; }
+.lean-applied-log summary button + b { margin-left: 0; }
+.lean-applied-log > div { max-height: 170px; display: grid; gap: 7px; padding: 0 9px 9px; overflow-y: auto; }
+.lean-applied-log article { padding: 9px 10px; background: white; border: 1px solid #dceee3; border-radius: 8px; }
+.lean-applied-log article > strong { color: #1d4d35; font-size: 10px; }
+.lean-applied-log p { margin: 4px 0 0; color: #56625a; font-size: 8.5px; line-height: 1.35; }
 .lean-advice-list { min-height: 0; flex: 1; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-content: start; gap: 10px; padding: 0 20px 20px; overflow-y: auto; }
 .lean-advice-card { position: relative; min-width: 0; padding: 13px; background: white; border: 1px solid #e0e0e5; border-radius: 13px; box-shadow: 0 3px 10px rgba(0,0,0,.035); }
 .lean-advice-card.critical { border-left: 4px solid #d43d32; }
@@ -565,7 +575,16 @@ g:hover > .edit-btn-group { opacity: 1; }
 .lean-advice-copy > span { color: #8a8a91; font-size: 7.5px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
 .lean-advice-copy p { margin: 0; color: #5e5e65; font-size: 9px; line-height: 1.4; }
 .lean-advice-copy.action p { color: #2f3439; font-weight: 650; }
+.lean-fix-preview { display: grid; grid-template-columns: 92px 1fr; gap: 5px 7px; margin-top: 10px; padding: 9px; background: #f6f8fb; border: 1px solid #e4e8ee; border-radius: 9px; }
+.lean-fix-preview > span { color: #567086; font-size: 7px; font-weight: 850; letter-spacing: .03em; text-transform: uppercase; }
+.lean-fix-preview p { margin: 0; color: #3f4b55; font-size: 8.5px; line-height: 1.4; }
+.lean-advice-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
 .lean-focus-button { max-width: 100%; margin-top: 11px; padding: 6px 8px; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; color: #0065c8; background: #eaf4ff; border: 0; border-radius: 7px; font-size: 8.5px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
+.lean-advice-actions .lean-focus-button { margin-top: 0; }
+.lean-apply-button { min-height: 29px; display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; color: white; background: linear-gradient(135deg,#0878c9,#0055b8); border: 0; border-radius: 7px; font-size: 8.5px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 10px rgba(0,91,190,.16); }
+.lean-apply-button:hover { filter: brightness(1.05); }
+.lean-future-only { padding: 6px 8px; color: #7d6a21; background: #fff7dc; border-radius: 7px; font-size: 8px; font-weight: 750; }
+.lean-manual-only { padding: 6px 8px; color: #7a4540; background: #fff1ef; border-radius: 7px; font-size: 8px; font-weight: 700; line-height: 1.3; }
 .lean-advice-empty { grid-column: 1 / -1; min-height: 180px; display: grid; place-items: center; align-content: center; gap: 6px; color: #218653; }
 .lean-advice-empty span { color: #77777d; font-size: 10px; }
 
