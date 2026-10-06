@@ -24,6 +24,14 @@ interface SymProps {
   accentColor?: string;
   processLoadPercent?: number;
   processCapacityPerDay?: number;
+  heijunkaSchedule?: {
+    productId: string;
+    name: string;
+    code: string;
+    color: string;
+    packSize: number;
+    pitchTimeSec: number;
+  }[];
   timelineItems?: {
     id: string;
     type: 'process' | 'inventory';
@@ -388,30 +396,42 @@ export function KanbanBoardSymbol({ el, selected, onEdit }: SymProps) {
 }
 
 // ── Heijunka box ──────────────────────────────────────────────────────────────
-export function HeijunkaSymbol({ el, selected, onEdit }: SymProps) {
+export function HeijunkaSymbol({ el, selected, onEdit, heijunkaSchedule = [] }: SymProps) {
   const w = 140; const h = 80;
   const colors = theme('#2c5fa8');
-  const cols = Math.max(1, Number(el.data.cols) || 5);
-  const rows = Math.max(1, Number(el.data.rows) || 2);
-  const cw = (w - 10) / cols; const rh = (h - 22) / rows;
-  const cardColors = [colors.accent, colors.dark, colors.mid, colors.darker, mixColor(colors.accent, '#ffffff', .65)];
+  const products = heijunkaSchedule.filter((slot, index, items) => items.findIndex((candidate) => candidate.productId === slot.productId) === index).slice(0, 5);
+  const cols = Math.min(8, Math.max(1, Number(el.data.cols) || Math.min(6, heijunkaSchedule.length || 5)));
+  const rows = Math.max(1, products.length || Number(el.data.rows) || 2);
+  const labelWidth = products.length ? 18 : 0;
+  const cw = (w - 10 - labelWidth) / cols; const rh = (h - 22) / rows;
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
       <rect width={w} height={h} rx={7} fill={colors.pale} stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
       <rect width={w} height={18} rx={7} fill={colors.accent} />
       <text x={w/2} y={12} textAnchor="middle" fontSize={7.5} fontWeight="700" fontFamily="Arial" fill="white">{el.label || 'Heijunka'}</text>
-      {Array.from({length: rows}, (_,r) => Array.from({length: cols}, (_,c) => (
-        <rect key={`${r}-${c}`} x={5 + c*cw} y={20 + r*rh} width={cw-2} height={rh-2} rx={1}
-          fill={r === 0 ? cardColors[c % cardColors.length] : 'white'} stroke={colors.dark} strokeWidth={0.7} />
-      )))}
+      {Array.from({length: rows}, (_,r) => {
+        const product = products[r];
+        return <g key={`row-${r}`}>
+          {product && <text x={12} y={20+r*rh+rh/2+2} textAnchor="middle" fontSize={5.5} fontWeight="900" fontFamily="Arial" fill={product.color}>{product.code}</text>}
+          {Array.from({length: cols}, (_,c) => {
+            const slot = heijunkaSchedule[c % Math.max(1, heijunkaSchedule.length)];
+            const filled = product ? slot?.productId === product.productId : r === 0;
+            return <g key={`${r}-${c}`}>
+              <rect x={5+labelWidth+c*cw} y={20+r*rh} width={cw-2} height={rh-2} rx={1}
+                fill={filled ? (product?.color ?? colors.mid) : 'white'} stroke={colors.dark} strokeWidth={0.7}/>
+              {filled && product && cw > 10 && <text x={5+labelWidth+c*cw+(cw-2)/2} y={20+r*rh+rh/2+2} textAnchor="middle" fontSize={4.5} fontWeight="900" fontFamily="Arial" fill="white">{product.packSize}</text>}
+            </g>;
+          })}
+        </g>;
+      })}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
 }
 
 // ── Caixa de sequenciamento ───────────────────────────────────────────────────
-export function SequencingBoxSymbol({ el, selected, onEdit }: SymProps) {
+export function SequencingBoxSymbol({ el, selected, onEdit, heijunkaSchedule = [] }: SymProps) {
   const w = 120; const h = 60;
   const colors = theme('#2c5fa8');
   const slots = Math.max(1, Number(el.data.slots) || 6);
@@ -423,7 +443,8 @@ export function SequencingBoxSymbol({ el, selected, onEdit }: SymProps) {
       <rect width={w} height={18} rx={7} fill={colors.accent} />
       <text x={w/2} y={12} textAnchor="middle" fontSize={7} fontWeight="700" fontFamily="Arial" fill="white">{el.label || 'Sequenciamento'}</text>
       {Array.from({length: slots}, (_,i) => (
-        <rect key={i} x={5 + i*sw} y={22} width={sw-2} height={30} rx={2} fill={i % 2 ? colors.light : 'white'} stroke={colors.dark} strokeWidth={0.8} />
+        <g key={i}><rect x={5 + i*sw} y={22} width={sw-2} height={30} rx={2} fill={heijunkaSchedule[i % Math.max(1, heijunkaSchedule.length)]?.color ?? (i % 2 ? colors.light : 'white')} stroke={colors.dark} strokeWidth={0.8} />
+          {heijunkaSchedule.length > 0 && <text x={5+i*sw+(sw-2)/2} y={40} textAnchor="middle" fontSize={Math.min(7,sw*.42)} fontWeight="900" fontFamily="Arial" fill="white">{heijunkaSchedule[i % heijunkaSchedule.length].code}</text>}</g>
       ))}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>

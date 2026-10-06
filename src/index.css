@@ -402,6 +402,13 @@ g:hover > .edit-btn-group { opacity: 1; }
 .kanban-sizing-result button { height: 31px; color: white; background: #0071e3; border: 0; border-radius: 8px; font-size: 9.5px; font-weight: 750; cursor: pointer; }
 .kanban-sizing-result button:disabled { opacity: .4; cursor: default; }
 .kanban-sizing-formula { display: block; margin: 7px 14px 0; color: #77777d; font-size: 8px; line-height: 1.4; }
+.leveling-editor-preview { display: grid; gap: 8px; margin: 10px 14px 4px; padding: 10px; background: #f5f8fc; border: 1px solid #dce5ef; border-radius: 10px; }
+.leveling-editor-preview > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.leveling-editor-preview strong { color: #23384c; font-size: 10px; }
+.leveling-editor-preview > div:first-child span { color: #66798b; font-size: 8.5px; font-weight: 700; }
+.leveling-sequence-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.leveling-sequence-chips span { min-width: 24px; height: 22px; display: grid; place-items: center; padding: 0 5px; color: white; border-radius: 5px; font-size: 7.5px; font-weight: 900; cursor: help; }
+.leveling-editor-preview small { color: #71808e; font-size: 8px; line-height: 1.4; }
 
 /* ─── Modal exportação ──────────────────────────────────────────────── */
 .editor-overlay {

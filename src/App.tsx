@@ -56,6 +56,17 @@ interface CanvasWorkspace {
   activeFutureId: string;
 }
 
+interface HeijunkaSlot {
+  productId: string;
+  name: string;
+  code: string;
+  color: string;
+  packSize: number;
+  pitchTimeSec: number;
+}
+
+const PRODUCT_SEQUENCE_COLORS = ['#2f80ed','#f2994a','#27ae60','#9b51e0','#eb5757','#00a6a6','#c08b00','#536d8c'];
+
 function validThemeColor(value: unknown) {
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : DEFAULT_THEME_COLOR;
 }
@@ -123,6 +134,30 @@ function calculateScenario(assumptions: ScenarioAssumptions) {
   return { monthlyDemand, dailyDemand, taktTimeSec, weightedPackSize, pitchTimeSec, productMetrics };
 }
 
+function buildLeveledSequence(productMetrics: ReturnType<typeof calculateScenario>['productMetrics']) {
+  const active = productMetrics.filter((item) => item.monthlyDemand > 0).map((item, index) => ({
+    ...item,
+    code: `P${index + 1}`,
+    color: PRODUCT_SEQUENCE_COLORS[index % PRODUCT_SEQUENCE_COLORS.length],
+    packsPerDay: item.packSize > 0 ? item.dailyDemand / item.packSize : 0,
+    assigned: 0,
+  }));
+  const totalPacksPerDay = active.reduce((sum, item) => sum + item.packsPerDay, 0);
+  if (!active.length || totalPacksPerDay <= 0) return { slots: [] as HeijunkaSlot[], totalPacksPerDay: 0 };
+  const slotCount = Math.min(24, Math.max(active.length, Math.ceil(totalPacksPerDay)));
+  const slots: HeijunkaSlot[] = [];
+  for (let slotIndex = 0; slotIndex < slotCount; slotIndex += 1) {
+    const selected = active.reduce((best, item) => {
+      const deficit = (item.packsPerDay / totalPacksPerDay) * (slotIndex + 1) - item.assigned;
+      const bestDeficit = (best.packsPerDay / totalPacksPerDay) * (slotIndex + 1) - best.assigned;
+      return deficit > bestDeficit ? item : best;
+    }, active[0]);
+    selected.assigned += 1;
+    slots.push({ productId: selected.id, name: selected.name, code: selected.code, color: selected.color, packSize: selected.packSize, pitchTimeSec: selected.pitchTimeSec });
+  }
+  return { slots, totalPacksPerDay };
+}
+
 function calculateKanbanSizing(element: CanvasElement, assumptions: ScenarioAssumptions) {
   const scenario = calculateScenario(assumptions);
   const productId = String(element.data.productId ?? '');
@@ -188,6 +223,7 @@ function nearestProcess(marker: CanvasElement, processes: CanvasElement[]) {
 
 function calculateCanvasSimulation(canvas: CanvasState) {
   const scenario = calculateScenario(canvas.assumptions);
+  const leveling = buildLeveledSequence(scenario.productMetrics);
   const { dailyDemand, taktTimeSec } = scenario;
   const rawMaterialEntry = canvas.elements
     .filter((element) => element.kind === 'raw-material')
@@ -315,6 +351,8 @@ function calculateCanvasSimulation(canvas: CanvasState) {
     weightedPackSize: scenario.weightedPackSize,
     pitchTimeSec: scenario.pitchTimeSec,
     epeiDays,
+    leveledSequence: leveling.slots,
+    totalPacksPerDay: leveling.totalPacksPerDay,
     processElements,
     processMetrics,
     invalidProcesses: processMetrics.filter((metric) => !metric.valid),
@@ -618,6 +656,12 @@ function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof c
     expected: 'O cenário passa a representar o nivelamento de volume e mix por intervalos de pitch.',
     fix: { kind: 'add-heijunka', processId: simulation.pacemaker.id, label: 'Adicionar Heijunka Box', change: `Criar o quadro próximo a ${simulation.pacemaker.label}, com linhas para os produtos ativos.` },
   });
+  if (simulation.pacemaker && simulation.heijunkaBoxes.length > 0 && simulation.leveledSequence.length > 0) advice.push({
+    id: 'heijunka-active', level: 'good', area: 'programacao', title: `Sequência nivelada em ${simulation.leveledSequence.length} slots`,
+    why: `O quadro distribui ${simulation.activeProductCount} produto(s) conforme demanda, embalagem e pitch: ${simulation.leveledSequence.slice(0, 10).map((slot) => slot.code).join(' → ')}${simulation.leveledSequence.length > 10 ? '…' : ''}`,
+    action: 'Execute a sequência no marcapasso e compare a frequência real de troca com o EPEI calculado.',
+    targetId: simulation.heijunkaBoxes[0].id, targetLabel: simulation.heijunkaBoxes[0].label,
+  });
   if (simulation.activeProductCount > 1 && simulation.pacemaker) {
     if (simulation.epeiDays === Infinity) advice.push({
       id: 'epei-no-capacity', level: 'critical', area: 'programacao', title: 'O mix não cabe no tempo disponível',
@@ -786,9 +830,10 @@ function applyLeanFix(canvas: CanvasState, advice: LeanAdvice): CanvasState {
     const process = findElement(fix.processId);
     if (process) {
       const scenario = calculateScenario(next.assumptions);
+      const leveling = buildLeveledSequence(scenario.productMetrics);
       const heijunka = createLibraryElement('heijunka', process.x + elementDimensions(process).width / 2 - 70, process.y - 190, 'Heijunka');
       heijunka.data.rows = Math.max(1, scenario.productMetrics.filter((item) => item.monthlyDemand > 0).length);
-      heijunka.data.cols = Math.min(6, Math.max(1, Math.round((next.assumptions.availableMinutesPerDay * 60) / Math.max(1, scenario.pitchTimeSec))));
+      heijunka.data.cols = Math.min(8, Math.max(1, leveling.slots.length));
       next.elements.push(heijunka);
     }
   }
@@ -816,11 +861,21 @@ function calculateLiveFlow(simulation: ReturnType<typeof calculateCanvasSimulati
     ? availableSeconds / simulation.pacemakerMetric.capacityPerDay
     : 0;
   const packSize = Math.max(1, Math.round(simulation.weightedPackSize));
-  const releaseInterval = Math.max(simulation.pitchTimeSec, pacemakerInterval * packSize);
-  const demandedPacks = Number.isFinite(releaseInterval) && releaseInterval > 0
-    ? Math.floor(elapsedSec / releaseInterval) + 1
-    : 0;
-  const demanded = demandedPacks * packSize;
+  const fallbackSlot: HeijunkaSlot = { productId: 'product-base', name: 'Produto', code: 'P1', color: PRODUCT_SEQUENCE_COLORS[0], packSize, pitchTimeSec: simulation.pitchTimeSec };
+  const sequence = simulation.leveledSequence.length ? simulation.leveledSequence : [fallbackSlot];
+  const demandedBatches: { batchIndex: number; product: HeijunkaSlot; packSize: number; releaseTime: number; interval: number }[] = [];
+  let scheduledTime = 0;
+  let batchIndex = 0;
+  while (scheduledTime <= elapsedSec && scheduledTime < availableSeconds && batchIndex < 2000) {
+    const product = sequence[batchIndex % sequence.length];
+    const interval = Math.max(product.pitchTimeSec, pacemakerInterval * product.packSize);
+    if (!Number.isFinite(interval) || interval <= 0) break;
+    demandedBatches.push({ batchIndex, product, packSize: product.packSize, releaseTime: scheduledTime, interval });
+    scheduledTime += interval;
+    batchIndex += 1;
+  }
+  const demandedPacks = demandedBatches.length;
+  const demanded = demandedBatches.reduce((sum, batch) => sum + batch.packSize, 0);
   const completionInterval = simulation.bottleneckCapacity > 0
     ? availableSeconds / simulation.bottleneckCapacity
     : Infinity;
@@ -831,14 +886,23 @@ function calculateLiveFlow(simulation: ReturnType<typeof calculateCanvasSimulati
     : 0;
   const allowedInFlow = simulation.pullSystemActive ? simulation.pullWipLimit : Infinity;
   const maxAllowed = potentialCompleted + allowedInFlow;
-  const launched = Number.isFinite(maxAllowed)
-    ? Math.min(demanded, Math.max(0, Math.floor(maxAllowed / packSize) * packSize))
-    : demanded;
+  const launchedBatches: typeof demandedBatches = [];
+  let launched = 0;
+  for (const batch of demandedBatches) {
+    if (Number.isFinite(maxAllowed) && launched + batch.packSize > maxAllowed) break;
+    const pullReleaseTime = simulation.pullSystemActive && launched >= simulation.pullWipLimit
+      ? nominalLeadSec + (launched - simulation.pullWipLimit) * completionInterval
+      : batch.releaseTime;
+    launchedBatches.push({ ...batch, releaseTime: Math.max(batch.releaseTime, pullReleaseTime) });
+    launched += batch.packSize;
+  }
   const completed = Math.min(launched, potentialCompleted);
   return {
-    releaseInterval,
+    releaseInterval: demandedBatches[demandedBatches.length - 1]?.interval ?? Math.max(simulation.pitchTimeSec, pacemakerInterval * packSize),
     packSize,
     demandedPacks,
+    demandedBatches,
+    launchedBatches,
     demanded,
     launched,
     completed,
@@ -1197,7 +1261,7 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
   'kanban-production':  [],
   'kanban-withdrawal':  [],
   'kanban-board':       [{ key: 'label', label: 'Título', type: 'text' },{ key: 'cols', label: 'Colunas' },{ key: 'rows', label: 'Linhas' }],
-  heijunka:             [{ key: 'label', label: 'Título', type: 'text' },{ key: 'cols', label: 'Colunas (dias)' },{ key: 'rows', label: 'Linhas (tipos)' }],
+  heijunka:             [{ key: 'label', label: 'Título', type: 'text' },{ key: 'cols', label: 'Slots visíveis' }],
   'sequencing-box':     [{ key: 'label', label: 'Título', type: 'text' },{ key: 'slots', label: 'Slots' }],
   planning:             [{ key: 'label', label: 'Título', type: 'text' },{ key: 'demanda', label: 'Demanda', suffix: 'un/mês' },{ key: 'takt', label: 'Takt time', suffix: 's' }],
   'data-box':           [{ key: 'label', label: 'Título', type: 'text' },{ key: 'tc', label: 'T/C', suffix: 's' },{ key: 'tcp', label: 'TCP', suffix: 's' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' },{ key: 'turnos', label: 'Turnos' }],
@@ -1241,6 +1305,7 @@ function renderElement(el: CanvasElement, selected: boolean, onEdit: () => void,
     accentColor,
     processLoadPercent: processMetric?.loadPercent,
     processCapacityPerDay: processMetric?.capacityPerDay,
+    heijunkaSchedule: simulation.leveledSequence,
   };
   let symbol;
   switch (el.kind) {
@@ -1574,20 +1639,16 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
     liveFlow.nominalLeadSec
       + route.length * 15,
   );
-  const flowInterval = liveFlow.releaseInterval;
-  const releasedToFlow = liveFlow.launched;
-  const firstVisible = Math.max(0, releasedToFlow - 18);
-  const tokens = Array.from({ length: releasedToFlow - firstVisible }, (_, offset) => {
+  const releasedUnits = liveFlow.launchedBatches.flatMap((batch) => Array.from({ length: batch.packSize }, (_, unitInPack) => ({ ...batch, unitInPack })));
+  const firstVisible = Math.max(0, releasedUnits.length - 18);
+  const tokens = releasedUnits.slice(firstVisible).map((unit, offset) => {
     const index = firstVisible + offset;
-    const packIndex = Math.floor(index / liveFlow.packSize);
-    const releaseTime = simulation.pullSystemActive && index >= simulation.pullWipLimit
-      ? liveFlow.nominalLeadSec + (index - simulation.pullWipLimit) * liveFlow.completionInterval
-      : packIndex * flowInterval;
+    const releaseTime = unit.releaseTime;
     const age = Math.max(0, elapsedSec - releaseTime);
     const progress = Math.min(1, age / nominalLeadSec);
     const point = pointAlongRoute(route, progress);
     const truck = truckCenters.find((center) => Math.hypot(point.x - center.x, point.y - center.y) < 58);
-    return { index, progress, point, truckId: truck?.id };
+    return { index, packIndex: unit.batchIndex, product: unit.product, progress, point, truckId: truck?.id };
   }).filter((token) => token.progress < 1);
   const loadingTruckIds = new Set(tokens.map((token) => token.truckId).filter(Boolean));
   const bottleneckMetric = simulation.processMetrics.find((metric) => metric.element.id === simulation.bottleneck?.id);
@@ -1648,11 +1709,11 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
         </g>;
       })()}
       {tokens.map((token) => <g key={token.index} transform={`translate(${token.point.x},${token.point.y})`} className={`live-product-token ${token.truckId ? 'inside-truck' : ''}`}>
-        <path d="M-13,-7 L0,-13 L13,-7 L0,-1 Z" fill={canvas.themeColor} stroke="#23415a" strokeWidth={1.2}/>
+        <path d="M-13,-7 L0,-13 L13,-7 L0,-1 Z" fill={token.product?.color ?? canvas.themeColor} stroke="#23415a" strokeWidth={1.2}/>
         <path d="M-13,-7 V8 L0,14 V-1 Z" fill="white" stroke="#23415a" strokeWidth={1.2}/>
-        <path d="M13,-7 V8 L0,14 V-1 Z" fill="#dcecff" stroke="#23415a" strokeWidth={1.2}/>
+        <path d="M13,-7 V8 L0,14 V-1 Z" fill={token.product?.color ?? '#dcecff'} fillOpacity={0.22} stroke="#23415a" strokeWidth={1.2}/>
         <path d="M0,-13 V-1" stroke="#23415a" strokeWidth={1}/>
-        <text x={0} y={-18} textAnchor="middle" fontSize={7} fontWeight="800" fontFamily="Arial" fill="#34383e">CX {token.index + 1}</text>
+        <text x={0} y={-18} textAnchor="middle" fontSize={7} fontWeight="800" fontFamily="Arial" fill="#34383e">{token.product?.code ?? 'P1'} · CX {token.packIndex + 1}</text>
       </g>)}
     </g>
   );
@@ -1701,6 +1762,7 @@ function ElementPopover({ el, processes, assumptions, onUpdate, onDelete, onClos
   const fields = FIELD_DEFS[el.kind] ?? [{ key: 'label', label: 'Rótulo', type: 'text' }];
   const isKanbanControl = KANBAN_CONTROL_KINDS.includes(el.kind);
   const scenario = calculateScenario(assumptions);
+  const leveling = buildLeveledSequence(scenario.productMetrics);
   const kanbanSizing = isKanbanControl ? calculateKanbanSizing(el, assumptions) : null;
   const updateKanbanData = (key: string, value: string | number) => onUpdate({ data: { ...el.data, [key]: value } });
 
@@ -1766,6 +1828,11 @@ function ElementPopover({ el, processes, assumptions, onUpdate, onDelete, onClos
             <button type="button" disabled={!kanbanSizing.recommendedCards} onClick={() => updateKanbanData('qty', kanbanSizing.recommendedCards)}>Aplicar quantidade recomendada</button>
           </div>
           <small className="kanban-sizing-formula">Cálculo: consumo durante a reposição × segurança ÷ unidades por cartão.</small>
+        </div>}
+        {['heijunka','sequencing-box'].includes(el.kind) && <div className="leveling-editor-preview">
+          <div><strong>Sequência nivelada calculada</strong><span>{leveling.totalPacksPerDay.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} embalagem(ns)/dia</span></div>
+          <div className="leveling-sequence-chips">{leveling.slots.slice(0, 16).map((slot, index) => <span key={`${slot.productId}-${index}`} style={{ background: slot.color }} title={`${slot.name} · ${slot.packSize} un · pitch ${(slot.pitchTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min`}>{slot.code}</span>)}</div>
+          <small>A ordem distribui as embalagens proporcionalmente ao mix. Passe o mouse nos slots para ver produto, embalagem e pitch.</small>
         </div>}
         {fields.map((f) => (
           <div key={f.key} className="popover-field" style={{ marginTop: 8 }}>
@@ -2850,6 +2917,9 @@ export default function App() {
   const liveLaunched = liveFlow.launched;
   const liveCompleted = liveFlow.completed;
   const liveWip = liveFlow.wip;
+  const nextLeveledSlot = liveFlow.blocked > 0
+    ? liveFlow.demandedBatches[liveFlow.launchedBatches.length]?.product
+    : simulation.leveledSequence[liveFlow.demandedPacks % Math.max(1, simulation.leveledSequence.length)];
   const liveClock = `${String(Math.floor(liveElapsedSec / 3600)).padStart(2, '0')}:${String(Math.floor((liveElapsedSec % 3600) / 60)).padStart(2, '0')}`;
   const toggleLiveSimulation = () => {
     if (!simulation.rawMaterialEntry) {
@@ -2969,7 +3039,7 @@ export default function App() {
             <span>Marcapasso <b>{simulation.pacemaker?.label || 'não definido'}</b></span>
             <span>Pull <b>{simulation.pullSystemActive ? `ativo · WIP ${simulation.pullWipLimit}` : 'incompleto'}</b></span>
             <span>Kanban <b>{simulation.kanbanCardTotal} cartão(ões) · {simulation.kanbanAuthorizedUnits} un</b></span>
-            <span>Heijunka <b>{simulation.heijunkaBoxes.length && simulation.pacemaker ? 'ativo' : 'inativo'}</b></span>
+            <span>Heijunka <b>{simulation.heijunkaBoxes.length && simulation.pacemaker ? `ativo · ${simulation.leveledSequence.length} slots` : 'inativo'}</b></span>
             <span>Pitch <b>{simulation.pitchTimeSec > 0 ? `${(simulation.pitchTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min` : '—'}</b></span>
             <span>EPEI <b>{simulation.epeiDays === Infinity ? 'sem capacidade' : simulation.epeiDays > 0 ? `${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dia(s)` : '—'}</b></span>
           </div>
@@ -2995,6 +3065,7 @@ export default function App() {
           </div>
           <div className="live-metrics">
             <div><span>Tempo simulado</span><strong>{liveClock}</strong></div>
+            <div className={liveFlow.blocked > 0 ? 'attention' : ''}><span>{liveFlow.blocked > 0 ? 'Embalagem aguardando' : 'Próxima embalagem'}</span><strong style={{ color: nextLeveledSlot?.color }}>{nextLeveledSlot ? `${nextLeveledSlot.code} · ${nextLeveledSlot.packSize} un` : '—'}</strong></div>
             <div><span>Ordens liberadas</span><strong>{liveLaunched}</strong></div>
             <div className={liveFlow.blocked > 0 ? 'attention' : ''}><span>Bloqueadas pelo pull</span><strong>{liveFlow.blocked}</strong></div>
             <div><span>Caixas concluídas</span><strong>{liveCompleted}</strong></div>
