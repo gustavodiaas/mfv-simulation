@@ -14,6 +14,7 @@ Aplicação web para criar, comparar e imprimir cenários de Mapeamento de Fluxo
 - Biblioteca de símbolos e fluxos inspirada no padrão visual das planilhas MFV
 - Salvamento local no navegador
 - Relatório preparado para impressão ou PDF
+- Testes automatizados do motor de estresse e da sincronização unilateral entre Estado Atual e Estado Futuro
 
 ## Desenvolvimento
 
@@ -26,5 +27,6 @@ Para validar a versão de produção:
 
 ```bash
 pnpm run typecheck
+pnpm test
 pnpm run build
 ```
