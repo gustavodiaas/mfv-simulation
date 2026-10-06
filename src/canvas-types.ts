@@ -111,15 +111,15 @@ export const ARROW_KINDS: ElementKind[] = [
 
 export const LIBRARY: LibraryItem[] = [
   // ── Material
-  { kind: 'supplier',          label: 'Fornecedor',         group: 'material',   defaultLabel: 'Fornecedor',          defaultData: { freq: 1 },                                      w: 170, h: 120 },
-  { kind: 'customer',          label: 'Cliente final',      group: 'material',   defaultLabel: 'Cliente final',       defaultData: { freq: 1 },                                      w: 170, h: 120 },
-  { kind: 'raw-material',      label: 'Matéria-prima',      group: 'material',   defaultLabel: 'Matéria-prima',       defaultData: { qty: 0 },                                       w: 130, h: 110 },
-  { kind: 'finished-goods',    label: 'Produto acabado',    group: 'material',   defaultLabel: 'Produto acabado',     defaultData: { qty: 0 },                                       w: 130, h: 110 },
-  { kind: 'warehouse',         label: 'Armazém',            group: 'material',   defaultLabel: 'Armazém',             defaultData: { qty: 0 },                                       w: 180, h: 120 },
-  { kind: 'shipping-point',    label: 'Expedição',          group: 'material',   defaultLabel: 'Expedição',           defaultData: {},                                               w: 150, h: 110 },
+  { kind: 'supplier',          label: 'Fornecedor',         group: 'material',   defaultLabel: 'Fornecedor',          defaultData: { freq: 1, color: DEFAULT_TRUCK_COLOR },           w: 170, h: 120 },
+  { kind: 'customer',          label: 'Cliente final',      group: 'material',   defaultLabel: 'Cliente final',       defaultData: { freq: 1, color: DEFAULT_TRUCK_COLOR },           w: 170, h: 120 },
+  { kind: 'raw-material',      label: 'Matéria-prima',      group: 'material',   defaultLabel: 'Matéria-prima',       defaultData: { qty: 0, color: DEFAULT_TRUCK_COLOR },            w: 130, h: 110 },
+  { kind: 'finished-goods',    label: 'Produto acabado',    group: 'material',   defaultLabel: 'Produto acabado',     defaultData: { qty: 0, color: DEFAULT_TRUCK_COLOR },            w: 130, h: 110 },
+  { kind: 'warehouse',         label: 'Armazém',            group: 'material',   defaultLabel: 'Armazém',             defaultData: { qty: 0, color: DEFAULT_TRUCK_COLOR },            w: 180, h: 120 },
+  { kind: 'shipping-point',    label: 'Expedição',          group: 'material',   defaultLabel: 'Expedição',           defaultData: { color: DEFAULT_TRUCK_COLOR },                    w: 150, h: 110 },
   { kind: 'process',           label: 'Processo',           group: 'material',   defaultLabel: 'Processo',            defaultData: { tc: 0, setup: 0, lote: 1, op: 1, recurso: 1, disp: 100, qualidade: 100 }, w: 150, h: 160 },
   { kind: 'shared-process',    label: 'Processo compartilhado', group: 'material', defaultLabel: 'Processo compartilhado', defaultData: { tc: 0, setup: 0, lote: 1, op: 1, recurso: 1, disp: 100, qualidade: 100 }, w: 170, h: 160 },
-  { kind: 'machine',           label: 'Máquina / equipamento', group: 'material', defaultLabel: 'Máquina',            defaultData: { recurso: 1, disp: 100 },                         w: 150, h: 120 },
+  { kind: 'machine',           label: 'Máquina / equipamento', group: 'material', defaultLabel: 'Máquina',            defaultData: { recurso: 1, disp: 100, color: DEFAULT_TRUCK_COLOR }, w: 150, h: 120 },
   { kind: 'inspection',        label: 'Inspeção / qualidade', group: 'material', defaultLabel: 'Inspeção',            defaultData: { tc: 0, op: 1 },                                 w: 100, h: 86  },
   { kind: 'work-cell',         label: 'Célula de trabalho', group: 'material',   defaultLabel: 'Célula',              defaultData: { op: 1 },                                        w: 160, h: 100 },
   { kind: 'inventory',         label: 'Estoque',            group: 'material',   defaultLabel: 'Estoque',             defaultData: { qty: 0 },                                       w: 60,  h: 60  },
@@ -131,10 +131,10 @@ export const LIBRARY: LibraryItem[] = [
   { kind: 'resource-zone',     label: 'Área de intervenção', group: 'anotacao',  defaultLabel: 'ÁREA DE INTERVENÇÃO', defaultData: {},                                             w: 340, h: 180 },
   // ── Logística
   { kind: 'truck',             label: 'Caminhão',           group: 'logistica',  defaultLabel: 'Entrega',             defaultData: { freq: 1, color: DEFAULT_TRUCK_COLOR },          w: 210, h: 130 },
-  { kind: 'transport-air',     label: 'Transporte aéreo',   group: 'logistica',  defaultLabel: 'Aéreo',               defaultData: { freq: 1 },                                      w: 180, h: 105 },
-  { kind: 'transport-ship',    label: 'Transporte marítimo', group: 'logistica', defaultLabel: 'Marítimo',            defaultData: { freq: 1 },                                      w: 180, h: 105 },
-  { kind: 'forklift',          label: 'Empilhadeira',       group: 'logistica',  defaultLabel: 'Movimentação',        defaultData: { distance: 0 },                                  w: 140, h: 115 },
-  { kind: 'milk-run',          label: 'Milk run',           group: 'logistica',  defaultLabel: 'Milk run',            defaultData: { freq: 1 },                                      w: 120, h: 64  },
+  { kind: 'transport-air',     label: 'Transporte aéreo',   group: 'logistica',  defaultLabel: 'Aéreo',               defaultData: { freq: 1, color: DEFAULT_TRUCK_COLOR },           w: 180, h: 105 },
+  { kind: 'transport-ship',    label: 'Transporte marítimo', group: 'logistica', defaultLabel: 'Marítimo',            defaultData: { freq: 1, color: DEFAULT_TRUCK_COLOR },           w: 180, h: 105 },
+  { kind: 'forklift',          label: 'Empilhadeira',       group: 'logistica',  defaultLabel: 'Movimentação',        defaultData: { distance: 0, color: DEFAULT_TRUCK_COLOR },       w: 140, h: 115 },
+  { kind: 'milk-run',          label: 'Milk run',           group: 'logistica',  defaultLabel: 'Milk run',            defaultData: { freq: 1, color: '#0071e3' },                    w: 120, h: 64  },
   // ── Kanban
   { kind: 'kanban-production', label: 'Kanban produção',    group: 'kanban',     defaultLabel: 'Kanban\nprodução',    defaultData: { qty: 0 },                                       w: 60,  h: 44  },
   { kind: 'kanban-withdrawal', label: 'Kanban retirada',    group: 'kanban',     defaultLabel: 'Kanban\nretirada',   defaultData: { qty: 0 },                                       w: 60,  h: 44  },

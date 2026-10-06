@@ -70,6 +70,28 @@ function SelectionRect({ w, h }: { w: number; h: number }) {
     fill="none" stroke="#0071e3" strokeWidth={2} strokeDasharray="4 2" opacity={0.7} />;
 }
 
+function TintedAssetImage({ el, href, x, y, width, height }: {
+  el: CanvasElement;
+  href: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}) {
+  const color = String(el.data.color ?? DEFAULT_TRUCK_COLOR);
+  const filterId = `asset-tint-${el.id}`;
+  return <>
+    <defs>
+      <filter id={filterId} x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
+        <feFlood floodColor={color} floodOpacity={0.72} result="tint" />
+        <feComposite in="tint" in2="SourceGraphic" operator="in" result="tintedShape" />
+        <feBlend in="SourceGraphic" in2="tintedShape" mode="multiply" />
+      </filter>
+    </defs>
+    <image href={href} x={x} y={y} width={width} height={height} preserveAspectRatio="xMidYMid meet" filter={`url(#${filterId})`} />
+  </>;
+}
+
 // ── Processo ─────────────────────────────────────────────────────────────────
 export function ProcessSymbol({ el, selected, onEdit, taktTimeSec = 0, availableMinutesPerDay = 0, accentColor, processLoadPercent, processCapacityPerDay }: SymProps) {
   const w = 150; const h = 160;
@@ -149,7 +171,7 @@ export function PartySymbol({ el, selected, onEdit }: SymProps) {
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <image href={isC ? finalCustomerThreeQuarter : supplierFactoryThreeQuarter} x={4} y={2} width={w-8} height={92} preserveAspectRatio="xMidYMid meet" />
+      <TintedAssetImage el={el} href={isC ? finalCustomerThreeQuarter : supplierFactoryThreeQuarter} x={4} y={2} width={w-8} height={92} />
       <text x={w/2} y={103} textAnchor="middle" fontSize={8} fontWeight="800" fontFamily="Arial" fill="#34383e">{label}</text>
       {el.data.freq && <text x={w/2} y={115} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#6b7178">a cada {el.data.freq} dia(s)</text>}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
@@ -160,19 +182,10 @@ export function PartySymbol({ el, selected, onEdit }: SymProps) {
 // ── Caminhão ──────────────────────────────────────────────────────────────────
 export function TruckSymbol({ el, selected, onEdit }: SymProps) {
   const w = 210; const h = 130;
-  const color = String(el.data.color ?? DEFAULT_TRUCK_COLOR);
-  const filterId = `truck-tint-${el.id}`;
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <defs>
-        <filter id={filterId} x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
-          <feFlood floodColor={color} floodOpacity={0.72} result="tint" />
-          <feComposite in="tint" in2="SourceGraphic" operator="in" result="tintedShape" />
-          <feBlend in="SourceGraphic" in2="tintedShape" mode="multiply" />
-        </filter>
-      </defs>
-      <image href={truckThreeQuarter} x={2} y={2} width={206} height={108} preserveAspectRatio="xMidYMid meet" filter={`url(#${filterId})`} />
+      <TintedAssetImage el={el} href={truckThreeQuarter} x={2} y={2} width={206} height={108} />
       {el.label && <text x={w/2} y={120} textAnchor="middle" fontSize={8} fontFamily="Arial" fill="#34383e" fontWeight="700">{el.label}</text>}
       {el.data.freq && <text x={w/2} y={129} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#6b7178">a cada {el.data.freq} dia(s)</text>}
       <EditBtn onEdit={onEdit} x={w-2} y={5} />
@@ -186,7 +199,7 @@ export function ShippingPointSymbol({ el, selected, onEdit }: SymProps) {
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <image href={shippingDockThreeQuarter} x={4} y={2} width={w-8} height={88} preserveAspectRatio="xMidYMid meet" />
+      <TintedAssetImage el={el} href={shippingDockThreeQuarter} x={4} y={2} width={w-8} height={88} />
       <text x={w/2} y={103} textAnchor="middle" fontSize={8} fontWeight="800" fontFamily="Arial" fill="#34383e">{el.label || 'Expedição'}</text>
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
@@ -696,7 +709,7 @@ export function ExtendedSymbol(props: SymProps) {
     const image = el.kind === 'raw-material' ? rawMaterialThreeQuarter : el.kind === 'finished-goods' ? finishedGoodsThreeQuarter : warehouseThreeQuarter;
     return <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <image href={image} x={4} y={2} width={w-8} height={h-25} preserveAspectRatio="xMidYMid meet" />
+      <TintedAssetImage el={el} href={image} x={4} y={2} width={w-8} height={h-25} />
       {label(w/2,h-11)}
       {Number(el.data.qty ?? 0) > 0 && <text x={w/2} y={h-2} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#6b7178">{el.data.qty} un</text>}
       {edit(w-2)}
@@ -705,7 +718,7 @@ export function ExtendedSymbol(props: SymProps) {
 
   if (el.kind === 'machine') {
     const w=150,h=120;
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<image href={cncMachineThreeQuarter} x={4} y={2} width={w-8} height={94} preserveAspectRatio="xMidYMid meet"/>
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<TintedAssetImage el={el} href={cncMachineThreeQuarter} x={4} y={2} width={w-8} height={94}/>
       {label(w/2,110)}{edit(w-2)}</g>;
   }
 
@@ -744,11 +757,12 @@ export function ExtendedSymbol(props: SymProps) {
 
   if (['transport-air','transport-ship','forklift','milk-run'].includes(el.kind)) {
     const w=el.kind==='milk-run'?120:el.kind==='forklift'?140:180; const h=el.kind==='milk-run'?64:el.kind==='forklift'?115:105;
+    const transportColors = theme(String(el.data.color ?? '#0071e3'));
     return <g>{selected && <SelectionRect w={w} h={h}/>}
-      {el.kind==='transport-air' && <image href={cargoAirplaneThreeQuarter} x={5} y={5} width={w-10} height={h-24} preserveAspectRatio="xMidYMid meet"/>}
-      {el.kind==='transport-ship' && <image href={cargoShipThreeQuarter} x={5} y={5} width={w-10} height={h-24} preserveAspectRatio="xMidYMid meet"/>}
-      {el.kind==='forklift' && <image href={forkliftThreeQuarter} x={5} y={3} width={w-10} height={h-22} preserveAspectRatio="xMidYMid meet"/>}
-      {el.kind==='milk-run' && <><path d="M14,29 H105" fill="none" stroke={colors.accent} strokeWidth={2} strokeDasharray="5 3"/><circle cx={23} cy={29} r={9} fill={colors.light} stroke={colors.accent}/><circle cx={60} cy={29} r={9} fill={colors.light} stroke={colors.accent}/><circle cx={97} cy={29} r={9} fill={colors.light} stroke={colors.accent}/></>}
+      {el.kind==='transport-air' && <TintedAssetImage el={el} href={cargoAirplaneThreeQuarter} x={5} y={5} width={w-10} height={h-24}/>}
+      {el.kind==='transport-ship' && <TintedAssetImage el={el} href={cargoShipThreeQuarter} x={5} y={5} width={w-10} height={h-24}/>}
+      {el.kind==='forklift' && <TintedAssetImage el={el} href={forkliftThreeQuarter} x={5} y={3} width={w-10} height={h-22}/>}
+      {el.kind==='milk-run' && <><path d="M14,29 H105" fill="none" stroke={transportColors.accent} strokeWidth={2} strokeDasharray="5 3"/><circle cx={23} cy={29} r={9} fill={transportColors.light} stroke={transportColors.accent}/><circle cx={60} cy={29} r={9} fill={transportColors.light} stroke={transportColors.accent}/><circle cx={97} cy={29} r={9} fill={transportColors.light} stroke={transportColors.accent}/></>}
       {label(w/2,h-6)}{edit(w-2)}</g>;
   }
 

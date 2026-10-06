@@ -36,6 +36,10 @@ const FIXED_IDENTIFICATION_ID = '__mfv-identification__';
 const GRID_SIZE = 20;
 const ALIGN_THRESHOLD = 8;
 const DEFAULT_THEME_COLOR = '#0071e3';
+const TINTABLE_ASSET_KINDS: ElementKind[] = [
+  'supplier','customer','truck','raw-material','finished-goods','warehouse','shipping-point','machine',
+  'transport-air','transport-ship','forklift','milk-run',
+];
 type ActiveKind = 'current' | 'future';
 type ScenarioPreset = 'current' | 'demand-up' | 'demand-down' | 'setup-half' | 'availability-up' | 'bottleneck-resource' | 'quality-up';
 
@@ -245,10 +249,12 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
           ? { ...element, label: 'Cliente final' }
           : element)
         .map((element) => {
-          if (element.kind !== 'truck') return element;
-          const truckColor = String(element.data.color ?? '');
-          const shouldRestoreDefault = !truckColor || (resetThemeLinkedTrucks && truckColor.toLowerCase() === themeColor.toLowerCase());
-          return shouldRestoreDefault ? { ...element, data: { ...element.data, color: DEFAULT_TRUCK_COLOR } } : element;
+          if (!TINTABLE_ASSET_KINDS.includes(element.kind)) return element;
+          const elementColor = String(element.data.color ?? '');
+          const defaultColor = element.kind === 'milk-run' ? DEFAULT_THEME_COLOR : DEFAULT_TRUCK_COLOR;
+          const shouldRestoreDefault = !elementColor
+            || (element.kind === 'truck' && resetThemeLinkedTrucks && elementColor.toLowerCase() === themeColor.toLowerCase());
+          return shouldRestoreDefault ? { ...element, data: { ...element.data, color: defaultColor } } : element;
         }),
     ],
     arrows: Array.isArray(raw?.arrows) ? raw.arrows : [],
@@ -474,18 +480,18 @@ function canvasForPreset(current: CanvasState, preset: ScenarioPreset) {
 const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type?: string; suffix?: string }[]>> = {
   process:              [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'setup', label: 'Setup / troca', suffix: 'min' },{ key: 'lote', label: 'Lote', suffix: 'un' },{ key: 'op', label: 'Operadores', suffix: 'pess.' },{ key: 'recurso', label: 'Recursos paralelos', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade / OEE', suffix: '%' },{ key: 'qualidade', label: 'Qualidade na saída', suffix: '%' }],
   'shared-process':     [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'setup', label: 'Setup / troca', suffix: 'min' },{ key: 'lote', label: 'Lote', suffix: 'un' },{ key: 'op', label: 'Operadores', suffix: 'pess.' },{ key: 'recurso', label: 'Recursos paralelos', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade / OEE', suffix: '%' },{ key: 'qualidade', label: 'Qualidade na saída', suffix: '%' }],
-  machine:              [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'recurso', label: 'Quantidade', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' }],
+  machine:              [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'color', label: 'Cor da máquina', type: 'color' },{ key: 'recurso', label: 'Quantidade', suffix: 'un' },{ key: 'disp', label: 'Disponibilidade', suffix: '%' }],
   inspection:           [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'tc', label: 'Tempo de ciclo', suffix: 's' },{ key: 'op', label: 'Operadores', suffix: 'pess.' }],
   'work-cell':          [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'op', label: 'Operadores', suffix: 'pess.' }],
-  supplier:             [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'freq', label: 'Frequência entrega', suffix: 'dias' }],
-  customer:             [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'freq', label: 'Frequência expedição', suffix: 'dias' }],
+  supplier:             [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'color', label: 'Cor do fornecedor', type: 'color' },{ key: 'freq', label: 'Frequência entrega', suffix: 'dias' }],
+  customer:             [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'color', label: 'Cor do cliente', type: 'color' },{ key: 'freq', label: 'Frequência expedição', suffix: 'dias' }],
   truck:                [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'color', label: 'Cor do caminhão', type: 'color' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
-  'shipping-point':     [{ key: 'label', label: 'Rótulo', type: 'text' }],
+  'shipping-point':     [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'color', label: 'Cor da expedição', type: 'color' }],
   inventory:            [{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   'safety-stock':       [{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
-  'raw-material':       [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
-  'finished-goods':     [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
-  warehouse:            [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
+  'raw-material':       [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'color', label: 'Cor da matéria-prima', type: 'color' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
+  'finished-goods':     [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'color', label: 'Cor do produto acabado', type: 'color' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
+  warehouse:            [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'color', label: 'Cor do armazém', type: 'color' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   buffer:               [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   supermarket:          [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   fifo:                 [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
@@ -502,10 +508,10 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
   'production-schedule':[{ key: 'label', label: 'Título', type: 'text' }],
   'erp-system':         [{ key: 'label', label: 'Nome do sistema', type: 'text' }],
   'go-see':             [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
-  'transport-air':      [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
-  'transport-ship':     [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
-  forklift:             [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'distance', label: 'Distância', suffix: 'm' }],
-  'milk-run':           [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
+  'transport-air':      [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'color', label: 'Cor do avião', type: 'color' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
+  'transport-ship':     [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'color', label: 'Cor do navio', type: 'color' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
+  forklift:             [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'color', label: 'Cor da empilhadeira', type: 'color' },{ key: 'distance', label: 'Distância', suffix: 'm' }],
+  'milk-run':           [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'color', label: 'Cor do milk run', type: 'color' },{ key: 'freq', label: 'Frequência', suffix: 'dias' }],
   distance:             [{ key: 'distance', label: 'Distância', suffix: 'm' }],
   'quality-problem':    [{ key: 'label', label: 'Descrição', type: 'text' },{ key: 'qty', label: 'Ocorrências', suffix: 'un' }],
   bottleneck:           [{ key: 'label', label: 'Descrição', type: 'text' }],
