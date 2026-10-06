@@ -142,7 +142,7 @@ export const LIBRARY: LibraryItem[] = [
   { kind: 'transport-air',     label: 'Transporte aéreo',   group: 'logistica',  defaultLabel: 'Aéreo',               defaultData: { freq: 1, color: DEFAULT_TRUCK_COLOR },           w: 180, h: 105 },
   { kind: 'transport-ship',    label: 'Transporte marítimo', group: 'logistica', defaultLabel: 'Marítimo',            defaultData: { freq: 1, color: DEFAULT_TRUCK_COLOR },           w: 180, h: 105 },
   { kind: 'forklift',          label: 'Empilhadeira',       group: 'logistica',  defaultLabel: 'Movimentação',        defaultData: { distance: 0, color: DEFAULT_TRUCK_COLOR },       w: 140, h: 115 },
-  { kind: 'milk-run',          label: 'Milk run',           group: 'logistica',  defaultLabel: 'Milk run',            defaultData: { freq: 1, color: '#0071e3' },                    w: 120, h: 64  },
+  { kind: 'milk-run',          label: 'Milk run',           group: 'logistica',  defaultLabel: 'Milk run',            defaultData: { freq: 1, color: DEFAULT_TRUCK_COLOR },           w: 190, h: 110 },
   // ── Kanban
   { kind: 'kanban-production', label: 'Kanban produção',    group: 'kanban',     defaultLabel: 'Kanban\nprodução',    defaultData: { qty: 0 },                                       w: 60,  h: 44  },
   { kind: 'kanban-withdrawal', label: 'Kanban retirada',    group: 'kanban',     defaultLabel: 'Kanban\nretirada',   defaultData: { qty: 0 },                                       w: 60,  h: 44  },

@@ -3,6 +3,7 @@ import truckThreeQuarter from './assets/truck-three-quarter.png';
 import cargoAirplaneThreeQuarter from './assets/cargo-airplane-three-quarter.png';
 import cargoShipThreeQuarter from './assets/cargo-ship-three-quarter.png';
 import forkliftThreeQuarter from './assets/forklift-three-quarter.png';
+import milkRunTuggerThreeQuarter from './assets/milk-run-tugger-three-quarter.png';
 import supplierFactoryThreeQuarter from './assets/supplier-factory-three-quarter.png';
 import finalCustomerThreeQuarter from './assets/final-customer-three-quarter.png';
 import rawMaterialThreeQuarter from './assets/raw-material-three-quarter.png';
@@ -423,7 +424,7 @@ export function PlanningSymbol({ el, selected, onEdit, accentColor }: SymProps) 
   const rows = [
     { k: 'Demanda mensal', v: `${format(el.data.demanda, 2)} un` },
     { k: 'Demanda diária', v: `${format(el.data.demandaDiaria, 2)} un` },
-    { k: 'TAKT time', v: `${format(Number(el.data.takt ?? 0) / 60, 2)} min` },
+    { k: 'TAKT time', v: `${format(Number(el.data.takt ?? 0) / 60, 2)} min`, highlight: true },
     { k: 'Tempo disponível', v: `${format(el.data.minutosDia, 0)} min/dia` },
   ];
   return (
@@ -437,9 +438,10 @@ export function PlanningSymbol({ el, selected, onEdit, accentColor }: SymProps) 
       )}
       {rows.map((r,i)=>(
         <g key={r.k}>
+          {r.highlight && <rect x={1} y={29+i*28} width={w-2} height={27} fill="#eaf7ee" />}
           <line x1={0} y1={28+(i+1)*28} x2={w} y2={28+(i+1)*28} stroke="#dde0e9" strokeWidth={0.8} />
-          <text x={7} y={28+18+i*28} fontSize={7} fontFamily="Arial" fill="#50575f" fontWeight="700">{r.k}</text>
-          <text x={w-7} y={28+18+i*28} fontSize={7.5} fontFamily="Arial" fill="#1d2128" fontWeight="700" textAnchor="end">{r.v}</text>
+          <text x={7} y={28+18+i*28} fontSize={7} fontFamily="Arial" fill={r.highlight ? '#16723a' : '#50575f'} fontWeight="700">{r.k}</text>
+          <text x={w-7} y={28+18+i*28} fontSize={r.highlight ? 8.5 : 7.5} fontFamily="Arial" fill={r.highlight ? '#138a43' : '#1d2128'} fontWeight={r.highlight ? '800' : '700'} textAnchor="end">{r.v}</text>
         </g>
       ))}
       <EditBtn onEdit={onEdit} x={w-2} y={4} />
@@ -756,13 +758,12 @@ export function ExtendedSymbol(props: SymProps) {
   }
 
   if (['transport-air','transport-ship','forklift','milk-run'].includes(el.kind)) {
-    const w=el.kind==='milk-run'?120:el.kind==='forklift'?140:180; const h=el.kind==='milk-run'?64:el.kind==='forklift'?115:105;
-    const transportColors = theme(String(el.data.color ?? '#0071e3'));
+    const w=el.kind==='milk-run'?190:el.kind==='forklift'?140:180; const h=el.kind==='milk-run'?110:el.kind==='forklift'?115:105;
     return <g>{selected && <SelectionRect w={w} h={h}/>}
       {el.kind==='transport-air' && <TintedAssetImage el={el} href={cargoAirplaneThreeQuarter} x={5} y={5} width={w-10} height={h-24}/>}
       {el.kind==='transport-ship' && <TintedAssetImage el={el} href={cargoShipThreeQuarter} x={5} y={5} width={w-10} height={h-24}/>}
       {el.kind==='forklift' && <TintedAssetImage el={el} href={forkliftThreeQuarter} x={5} y={3} width={w-10} height={h-22}/>}
-      {el.kind==='milk-run' && <><path d="M14,29 H105" fill="none" stroke={transportColors.accent} strokeWidth={2} strokeDasharray="5 3"/><circle cx={23} cy={29} r={9} fill={transportColors.light} stroke={transportColors.accent}/><circle cx={60} cy={29} r={9} fill={transportColors.light} stroke={transportColors.accent}/><circle cx={97} cy={29} r={9} fill={transportColors.light} stroke={transportColors.accent}/></>}
+      {el.kind==='milk-run' && <TintedAssetImage el={el} href={milkRunTuggerThreeQuarter} x={3} y={2} width={w-6} height={h-22}/>}
       {label(w/2,h-6)}{edit(w-2)}</g>;
   }
 

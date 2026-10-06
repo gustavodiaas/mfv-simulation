@@ -251,7 +251,7 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
         .map((element) => {
           if (!TINTABLE_ASSET_KINDS.includes(element.kind)) return element;
           const elementColor = String(element.data.color ?? '');
-          const defaultColor = element.kind === 'milk-run' ? DEFAULT_THEME_COLOR : DEFAULT_TRUCK_COLOR;
+          const defaultColor = DEFAULT_TRUCK_COLOR;
           const shouldRestoreDefault = !elementColor
             || (element.kind === 'truck' && resetThemeLinkedTrucks && elementColor.toLowerCase() === themeColor.toLowerCase());
           return shouldRestoreDefault ? { ...element, data: { ...element.data, color: defaultColor } } : element;
