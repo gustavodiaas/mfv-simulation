@@ -756,7 +756,8 @@ export function ExtendedSymbol(props: SymProps) {
 
   if (['transport-air','transport-ship','forklift','milk-run'].includes(el.kind)) {
     const w=el.kind==='milk-run'?120:el.kind==='forklift'?140:180; const h=el.kind==='milk-run'?64:el.kind==='forklift'?115:105;
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect width={w} height={h} rx={8} fill={colors.pale} stroke={stroke} strokeWidth={strokeWidth}/>
+    return <g>{selected && <SelectionRect w={w} h={h}/>}
+      {el.kind==='milk-run' && <rect width={w} height={h} rx={8} fill={colors.pale} stroke={stroke} strokeWidth={strokeWidth}/>}
       {el.kind==='transport-air' && <image href={cargoAirplaneThreeQuarter} x={5} y={5} width={w-10} height={h-24} preserveAspectRatio="xMidYMid meet"/>}
       {el.kind==='transport-ship' && <image href={cargoShipThreeQuarter} x={5} y={5} width={w-10} height={h-24} preserveAspectRatio="xMidYMid meet"/>}
       {el.kind==='forklift' && <image href={forkliftThreeQuarter} x={5} y={3} width={w-10} height={h-22} preserveAspectRatio="xMidYMid meet"/>}
