@@ -1,5 +1,8 @@
 import { DEFAULT_TRUCK_COLOR, type CanvasElement } from './canvas-types';
 import truckThreeQuarter from './assets/truck-three-quarter.png';
+import cargoAirplaneThreeQuarter from './assets/cargo-airplane-three-quarter.png';
+import cargoShipThreeQuarter from './assets/cargo-ship-three-quarter.png';
+import forkliftThreeQuarter from './assets/forklift-three-quarter.png';
 
 interface SymProps {
   el: CanvasElement;
@@ -739,9 +742,10 @@ export function ExtendedSymbol(props: SymProps) {
 
   if (el.kind === 'resource-zone') {
     const w=340,h=180;
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={2} y={12} width={w-4} height={h-14} rx={10} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeDasharray="8 5"/>
-      <rect x={16} y={2} width={Math.min(w-32, Math.max(150, (el.label || '').length * 5.7))} height={22} rx={11} fill="white" stroke={colors.dark}/>
-      <text x={24} y={17} fontSize={7.5} fontWeight="800" fontFamily="Arial" fill={colors.darker}>{(el.label || 'RECURSOS DA CÉLULA / MANUTENÇÃO').slice(0,48)}</text>{edit(w-2,14)}</g>;
+    const interventionRed = '#d92d20';
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={2} y={12} width={w-4} height={h-14} rx={10} fill="#fff5f4" fillOpacity={0.42} stroke={interventionRed} strokeWidth={2.2} strokeDasharray="8 5"/>
+      <rect x={16} y={2} width={Math.min(w-32, Math.max(126, (el.label || '').length * 5.7))} height={22} rx={11} fill="#fff1f0" stroke={interventionRed}/>
+      <text x={24} y={17} fontSize={7.5} fontWeight="800" fontFamily="Arial" fill="#8f1d16">{(el.label || 'ÁREA DE INTERVENÇÃO').slice(0,48)}</text>{edit(w-2,14)}</g>;
   }
 
   if (el.kind === 'safety-stock') {
@@ -751,11 +755,11 @@ export function ExtendedSymbol(props: SymProps) {
   }
 
   if (['transport-air','transport-ship','forklift','milk-run'].includes(el.kind)) {
-    const w=el.kind==='milk-run'?120:el.kind==='transport-ship'?105:el.kind==='transport-air'?100:90; const h=el.kind==='milk-run'?64:58;
+    const w=el.kind==='milk-run'?120:el.kind==='forklift'?140:180; const h=el.kind==='milk-run'?64:el.kind==='forklift'?115:105;
     return <g>{selected && <SelectionRect w={w} h={h}/>}<rect width={w} height={h} rx={8} fill={colors.pale} stroke={stroke} strokeWidth={strokeWidth}/>
-      {el.kind==='transport-air' && <path d="M12,29 L43,24 L56,8 L64,8 L59,23 L84,21 L88,27 L58,33 L62,47 L56,47 L45,35 L15,39 Z" fill={colors.mid} stroke={stroke}/>}
-      {el.kind==='transport-ship' && <><path d="M12,34 H92 L80,48 H28 Z" fill={colors.mid} stroke={stroke}/><rect x={37} y={19} width={33} height={15} fill={colors.light} stroke={stroke}/><line x1={52} y1={19} x2={52} y2={8} stroke={stroke}/></>}
-      {el.kind==='forklift' && <><circle cx={27} cy={44} r={6} fill="#39485c"/><circle cx={63} cy={44} r={6} fill="#39485c"/><rect x={18} y={24} width={42} height={18} rx={3} fill={colors.mid} stroke={stroke}/><path d="M58,13 V44 H80 M72,13 V39" fill="none" stroke={stroke} strokeWidth={3}/></>}
+      {el.kind==='transport-air' && <image href={cargoAirplaneThreeQuarter} x={5} y={5} width={w-10} height={h-24} preserveAspectRatio="xMidYMid meet"/>}
+      {el.kind==='transport-ship' && <image href={cargoShipThreeQuarter} x={5} y={5} width={w-10} height={h-24} preserveAspectRatio="xMidYMid meet"/>}
+      {el.kind==='forklift' && <image href={forkliftThreeQuarter} x={5} y={3} width={w-10} height={h-22} preserveAspectRatio="xMidYMid meet"/>}
       {el.kind==='milk-run' && <><path d="M14,29 H105" fill="none" stroke={colors.accent} strokeWidth={2} strokeDasharray="5 3"/><circle cx={23} cy={29} r={9} fill={colors.light} stroke={colors.accent}/><circle cx={60} cy={29} r={9} fill={colors.light} stroke={colors.accent}/><circle cx={97} cy={29} r={9} fill={colors.light} stroke={colors.accent}/></>}
       {label(w/2,h-6)}{edit(w-2)}</g>;
   }

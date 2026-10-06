@@ -227,6 +227,9 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
         .map((element) => ['process','shared-process'].includes(element.kind) && element.data.qualidade === undefined
           ? { ...element, data: { ...element.data, qualidade: 100 } }
           : element)
+        .map((element) => element.kind === 'resource-zone' && element.label === 'RECURSOS DA CÉLULA / MANUTENÇÃO'
+          ? { ...element, label: 'ÁREA DE INTERVENÇÃO' }
+          : element)
         .map((element) => {
           if (element.kind !== 'truck') return element;
           const truckColor = String(element.data.color ?? '');
