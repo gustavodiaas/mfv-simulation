@@ -3309,11 +3309,22 @@ function StressTestModal({ canvas, onFocus, onClose }: {
     demandPercent: 120,
     cycleVariationPercent: 15,
     extraDowntimePercent: 5,
+    shiftsPerDay: 1,
+    minutesPerShift: Math.round(canvas.assumptions.availableMinutesPerDay),
+    breakMinutesPerShift: 0,
+    failureProcessId: '',
+    failureStartMinute: 120,
+    failureDurationMinutes: 0,
+    supplierDelayMinutes: 0,
+    transportDelayMinutes: 0,
   });
   const result = runStressTest(canvas.elements, canvas.assumptions, settings);
-  const update = (key: keyof StressTestSettings, value: number) => {
+  const update = <Key extends keyof StressTestSettings>(key: Key, value: StressTestSettings[Key]) => {
     setSettings((previous) => ({ ...previous, [key]: value }));
   };
+  const processOptions = canvas.elements
+    .filter((element) => element.kind === 'process' || element.kind === 'shared-process')
+    .sort((left, right) => left.x - right.x);
   const format = (value: number, digits = 1) => value.toLocaleString('pt-BR', { maximumFractionDigits: digits });
   const statusLabel = result.status === 'rupture' ? 'Ruptura' : result.status === 'attention' ? 'Atenção' : result.status === 'stable' ? 'Estável' : 'Incompleto';
   const maxDaily = Math.max(1, ...result.dayResults.map((day) => Math.max(day.required, day.delivered)));
@@ -3339,6 +3350,19 @@ function StressTestModal({ canvas, onFocus, onClose }: {
           <label><span>Variação dos ciclos</span><strong>{settings.cycleVariationPercent}%</strong><input type="range" min={0} max={60} step={5} value={settings.cycleVariationPercent} onChange={(event) => update('cycleVariationPercent', Number(event.target.value))} /></label>
           <label><span>Paradas adicionais</span><strong>{settings.extraDowntimePercent}%</strong><input type="range" min={0} max={40} step={1} value={settings.extraDowntimePercent} onChange={(event) => update('extraDowntimePercent', Number(event.target.value))} /></label>
         </div>
+        <details className="stress-advanced" open>
+          <summary><div><strong>Calendário, falhas e logística</strong><span>Condições adicionais aplicadas em todos os dias do teste</span></div><b>Configurar</b></summary>
+          <div className="stress-advanced-grid">
+            <label><span>Turnos por dia</span><select value={settings.shiftsPerDay} onChange={(event) => update('shiftsPerDay', Number(event.target.value))}><option value={1}>1 turno</option><option value={2}>2 turnos</option><option value={3}>3 turnos</option></select></label>
+            <label><span>Minutos por turno</span><input type="number" min={60} max={720} step={15} value={settings.minutesPerShift} onChange={(event) => update('minutesPerShift', Number(event.target.value))} /></label>
+            <label><span>Intervalo por turno</span><div><input type="number" min={0} max={240} step={5} value={settings.breakMinutesPerShift} onChange={(event) => update('breakMinutesPerShift', Number(event.target.value))} /><small>min</small></div></label>
+            <label><span>Atraso do fornecedor</span><div><input type="number" min={0} max={1440} step={15} value={settings.supplierDelayMinutes} onChange={(event) => update('supplierDelayMinutes', Number(event.target.value))} /><small>min/dia</small></div></label>
+            <label><span>Tempo de transporte</span><div><input type="number" min={0} max={2880} step={15} value={settings.transportDelayMinutes} onChange={(event) => update('transportDelayMinutes', Number(event.target.value))} /><small>min</small></div></label>
+            <label className="stress-failure-process"><span>Falha específica em</span><select value={settings.failureProcessId} onChange={(event) => update('failureProcessId', event.target.value)}><option value="">Nenhuma falha direcionada</option>{processOptions.map((process) => <option key={process.id} value={process.id}>{process.label}</option>)}</select></label>
+            <label><span>Início da falha</span><div><input type="number" min={0} max={2160} step={15} disabled={!settings.failureProcessId} value={settings.failureStartMinute} onChange={(event) => update('failureStartMinute', Number(event.target.value))} /><small>min do dia</small></div></label>
+            <label><span>Duração da falha</span><div><input type="number" min={0} max={1440} step={15} disabled={!settings.failureProcessId} value={settings.failureDurationMinutes} onChange={(event) => update('failureDurationMinutes', Number(event.target.value))} /><small>min/dia</small></div></label>
+          </div>
+        </details>
 
         <div className="stress-test-body">
           <section className={`stress-result-hero ${result.status}`}>
@@ -3368,11 +3392,11 @@ function StressTestModal({ canvas, onFocus, onClose }: {
 
           {!!result.processResults.length && <section className="stress-processes">
             <div className="stress-section-title"><strong>Leitura por processo</strong><span>Onde o fluxo acumula, espera ou bloqueia</span></div>
-            <div className="stress-table-wrap"><table><thead><tr><th>Processo</th><th>Utilização</th><th>Maior fila</th><th>Sem material</th><th>Bloqueado</th><th>Parado</th></tr></thead><tbody>
+            <div className="stress-table-wrap"><table><thead><tr><th>Processo</th><th>Utilização</th><th>Maior fila</th><th>Sem material</th><th>Bloqueado</th><th>Intervalos</th><th>Falha</th><th>Outras paradas</th></tr></thead><tbody>
               {result.processResults.map((process) => <tr key={process.id} className={process.id === result.constraintId ? 'constraint' : ''} onClick={() => onFocus(process.id)}>
                 <td><strong>{process.label}</strong>{process.id === result.constraintId && <span>restrição</span>}</td>
                 <td>{format(process.utilizationPercent)}%</td><td>{format(process.maxQueue)} un</td>
-                <td>{format(process.starvationMinutes, 0)} min</td><td>{format(process.blockedMinutes, 0)} min</td><td>{format(process.lostMinutes, 0)} min</td>
+                <td>{format(process.starvationMinutes, 0)} min</td><td>{format(process.blockedMinutes, 0)} min</td><td>{format(process.breakMinutes, 0)} min</td><td>{format(process.failureMinutes, 0)} min</td><td>{format(process.downtimeMinutes, 0)} min</td>
               </tr>)}
             </tbody></table></div>
           </section>}

@@ -5,6 +5,14 @@ export interface StressTestSettings {
   demandPercent: number;
   cycleVariationPercent: number;
   extraDowntimePercent: number;
+  shiftsPerDay: number;
+  minutesPerShift: number;
+  breakMinutesPerShift: number;
+  failureProcessId: string;
+  failureStartMinute: number;
+  failureDurationMinutes: number;
+  supplierDelayMinutes: number;
+  transportDelayMinutes: number;
 }
 
 export interface StressProcessResult {
@@ -17,6 +25,9 @@ export interface StressProcessResult {
   starvationMinutes: number;
   blockedMinutes: number;
   lostMinutes: number;
+  breakMinutes: number;
+  failureMinutes: number;
+  downtimeMinutes: number;
   effectiveCycleSec: number;
 }
 
@@ -109,7 +120,14 @@ export function runStressTest(
   settings: StressTestSettings,
 ): StressTestResult {
   const days = clamp(Math.round(settings.days) || 1, 1, 30);
-  const minutesPerDay = clamp(Math.round(assumptions.availableMinutesPerDay) || 1, 1, 1440);
+  const shiftsPerDay = clamp(Math.round(settings.shiftsPerDay) || 1, 1, 3);
+  const minutesPerShift = clamp(Math.round(settings.minutesPerShift) || Math.round(assumptions.availableMinutesPerDay) || 1, 60, 720);
+  const minutesPerDay = shiftsPerDay * minutesPerShift;
+  const breakMinutesPerShift = clamp(Math.round(settings.breakMinutesPerShift) || 0, 0, Math.max(0, minutesPerShift - 1));
+  const failureStartMinute = clamp(Math.round(settings.failureStartMinute) || 0, 0, Math.max(0, minutesPerDay - 1));
+  const failureDurationMinutes = clamp(Math.round(settings.failureDurationMinutes) || 0, 0, minutesPerDay);
+  const supplierDelayMinutes = clamp(Math.round(settings.supplierDelayMinutes) || 0, 0, minutesPerDay);
+  const transportDelayMinutes = clamp(Math.round(settings.transportDelayMinutes) || 0, 0, minutesPerDay * 2);
   const workdays = Math.max(1, assumptions.workdaysPerMonth);
   const baseDailyDemand = Math.max(0, assumptions.productMix.reduce((sum, product) => sum + Math.max(0, product.monthlyDemand), 0)) / workdays;
   const dailyDemand = baseDailyDemand * clamp(settings.demandPercent, 10, 300) / 100;
@@ -139,8 +157,14 @@ export function runStressTest(
   const starvationMinutes = processes.map(() => 0);
   const blockedMinutes = processes.map(() => 0);
   const lostMinutes = processes.map(() => 0);
+  const breakMinutes = processes.map(() => 0);
+  const failureMinutes = processes.map(() => 0);
+  const downtimeMinutes = processes.map(() => 0);
   const maxQueues = processes.map((_, index) => queues[index]);
-  const dailyReleaseRate = dailyDemand / minutesPerDay;
+  const supplierWindowMinutes = Math.max(1, minutesPerDay - supplierDelayMinutes);
+  const dailyReleaseRate = supplierDelayMinutes < minutesPerDay ? dailyDemand / supplierWindowMinutes : 0;
+  const pendingDeliveries = Array.from({ length: totalMinutes + transportDelayMinutes + 1 }, () => 0);
+  let unitsInTransport = 0;
   let delivered = 0;
   let maxWip = queues.reduce((sum, queue) => sum + queue, 0);
   let ruptureDay: number | null = null;
@@ -148,17 +172,32 @@ export function runStressTest(
 
   for (let minute = 0; minute < totalMinutes; minute += 1) {
     const minuteInDay = minute % minutesPerDay;
-    queues[0] += dailyReleaseRate;
+    const arrivingCustomer = pendingDeliveries[minute] || 0;
+    if (arrivingCustomer > 0) {
+      delivered += arrivingCustomer;
+      unitsInTransport = Math.max(0, unitsInTransport - arrivingCustomer);
+    }
+    if (minuteInDay >= supplierDelayMinutes) queues[0] += dailyReleaseRate;
 
     for (let index = processes.length - 1; index >= 0; index -= 1) {
       const process = processes[index];
+      const minuteInShift = minuteInDay % minutesPerShift;
+      const breakStart = Math.floor((minutesPerShift - breakMinutesPerShift) / 2);
+      const plannedBreak = breakMinutesPerShift > 0 && minuteInShift >= breakStart && minuteInShift < breakStart + breakMinutesPerShift;
+      const specificFailure = process.element.id === settings.failureProcessId
+        && failureDurationMinutes > 0
+        && minuteInDay >= failureStartMinute
+        && minuteInDay < failureStartMinute + failureDurationMinutes;
       const stopWindow = Math.round(minutesPerDay * downtime);
       const stopStart = stopWindow > 0
         ? Math.floor(((index + 1) * minutesPerDay) / (processes.length + 2))
         : -1;
       const stopped = stopWindow > 0 && minuteInDay >= stopStart && minuteInDay < stopStart + stopWindow;
-      if (stopped) {
+      if (plannedBreak || specificFailure || stopped) {
         lostMinutes[index] += 1;
+        if (plannedBreak) breakMinutes[index] += 1;
+        else if (specificFailure) failureMinutes[index] += 1;
+        else downtimeMinutes[index] += 1;
         continue;
       }
 
@@ -187,12 +226,18 @@ export function runStressTest(
       produced[index] += processed;
       goodOutput[index] += good;
       busyMinutes[index] += processed / Math.max(minuteCapacity, 0.0001);
-      if (index === processes.length - 1) delivered += good;
+      if (index === processes.length - 1) {
+        if (transportDelayMinutes <= 0) delivered += good;
+        else {
+          pendingDeliveries[minute + transportDelayMinutes] += good;
+          unitsInTransport += good;
+        }
+      }
       else queues[index + 1] += good;
     }
 
     queues.forEach((queue, index) => { maxQueues[index] = Math.max(maxQueues[index], queue); });
-    maxWip = Math.max(maxWip, queues.reduce((sum, queue) => sum + queue, 0));
+    maxWip = Math.max(maxWip, queues.reduce((sum, queue) => sum + queue, 0) + unitsInTransport);
 
     if (minuteInDay === minutesPerDay - 1) {
       const day = Math.floor(minute / minutesPerDay) + 1;
@@ -206,7 +251,7 @@ export function runStressTest(
         delivered,
         backlog,
         serviceLevelPercent,
-        wip: queues.reduce((sum, queue) => sum + queue, 0),
+        wip: queues.reduce((sum, queue) => sum + queue, 0) + unitsInTransport,
       });
     }
   }
@@ -224,9 +269,12 @@ export function runStressTest(
     starvationMinutes: starvationMinutes[index],
     blockedMinutes: blockedMinutes[index],
     lostMinutes: lostMinutes[index],
+    breakMinutes: breakMinutes[index],
+    failureMinutes: failureMinutes[index],
+    downtimeMinutes: downtimeMinutes[index],
     effectiveCycleSec: process.effectiveCycleSec,
   }));
-  const constraint = processResults.reduce((worst, process, index) => {
+  const processConstraint = processResults.reduce((worst, process, index) => {
     const upstreamQueue = maxQueues[index];
     const score = process.utilizationPercent + upstreamQueue * 2 + process.blockedMinutes / Math.max(1, totalMinutes) * 30;
     return !worst || score > worst.score ? { process, score } : worst;
@@ -234,19 +282,31 @@ export function runStressTest(
   const status: StressTestResult['status'] = backlogUnits >= Math.max(1, requestedUnits * 0.05)
     ? 'rupture'
     : (maxWip > dailyDemand || serviceLevelPercent < 99 ? 'attention' : 'stable');
-  const bottleneckQueue = constraint ? processResults.find((process) => process.id === constraint.id)?.maxQueue ?? 0 : 0;
+  const inTransitAtEnd = unitsInTransport;
+  const supplierIsConstraint = backlogUnits > 0.1 && supplierDelayMinutes >= minutesPerDay;
+  const transportIsConstraint = backlogUnits > 0.1 && inTransitAtEnd > 0 && inTransitAtEnd >= backlogUnits * 0.5;
+  const constraint = transportIsConstraint
+    ? { id: null, label: 'Transporte ao cliente' }
+    : supplierIsConstraint
+      ? { id: null, label: 'Fornecedor' }
+      : { id: processConstraint?.id ?? null, label: processConstraint?.label ?? '—' };
+  const bottleneckQueue = processConstraint ? processResults.find((process) => process.id === processConstraint.id)?.maxQueue ?? 0 : 0;
   const headline = status === 'rupture'
     ? `O fluxo rompe no dia ${ruptureDay ?? days}`
     : status === 'attention'
       ? 'O fluxo atende, mas opera sob pressão'
       : 'O fluxo permanece estável no teste';
   const explanation = status === 'rupture'
-    ? `${constraint?.label ?? 'A linha'} limita a vazão. Ao final, ${backlogUnits.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} unidade(s) ficam atrasadas e a maior fila chega a ${bottleneckQueue.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}.`
+    ? `${constraint.label} limita a entrega. Ao final, ${backlogUnits.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} unidade(s) ficam atrasadas e a maior fila chega a ${bottleneckQueue.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}.`
     : status === 'attention'
       ? `A demanda foi atendida em ${serviceLevelPercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%, porém o WIP chegou a ${maxWip.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} unidade(s).`
       : `A linha entregou ${delivered.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} unidade(s), sem atraso relevante e com WIP máximo de ${maxWip.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}.`;
   const recommendation = status === 'rupture'
-    ? `Atue primeiro em ${constraint?.label ?? 'processo restritivo'}: teste redução de ciclo/setup, disponibilidade ou recurso adicional antes de aumentar estoques.`
+    ? transportIsConstraint
+      ? 'Reduza o tempo de transporte, antecipe a coleta ou crie uma frequência adicional de expedição antes de aumentar a produção.'
+      : supplierIsConstraint
+        ? 'Revise a janela de entrega do fornecedor ou proteja a entrada com estoque dimensionado para o atraso observado.'
+        : `Atue primeiro em ${constraint.label}: teste redução de ciclo/setup, disponibilidade ou recurso adicional antes de aumentar estoques.`
     : status === 'attention'
       ? `Observe ${constraint?.label ?? 'o processo mais carregado'} e reduza a liberação excessiva antes que a fila se transforme em atraso.`
       : 'O cenário suporta esta pressão. Aumente gradualmente a demanda ou as perdas para descobrir a margem real de segurança.';
@@ -259,8 +319,8 @@ export function runStressTest(
     serviceLevelPercent,
     maxWip,
     ruptureDay,
-    constraintId: constraint?.id ?? null,
-    constraintLabel: constraint?.label ?? '—',
+    constraintId: constraint.id,
+    constraintLabel: constraint.label,
     headline,
     explanation,
     recommendation,
