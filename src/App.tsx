@@ -259,6 +259,207 @@ function calculateCanvasSimulation(canvas: CanvasState) {
   };
 }
 
+type LeanAdviceLevel = 'critical' | 'opportunity' | 'good';
+type LeanAdviceArea = 'fluxo' | 'pull' | 'marcapasso' | 'programacao' | 'kanban' | 'dados';
+
+interface LeanAdvice {
+  id: string;
+  level: LeanAdviceLevel;
+  area: LeanAdviceArea;
+  title: string;
+  why: string;
+  action: string;
+  targetId?: string;
+  targetLabel?: string;
+}
+
+function centerOf(element: CanvasElement) {
+  const size = elementDimensions(element);
+  return { x: element.x + size.width / 2, y: element.y + size.height / 2 };
+}
+
+function nearestProcessToPoint(x: number, y: number, processes: CanvasElement[], maxDistance = 130) {
+  const match = processes.reduce((nearest, process) => {
+    const center = centerOf(process);
+    const distance = Math.hypot(x - center.x, y - center.y);
+    return !nearest || distance < nearest.distance ? { process, distance } : nearest;
+  }, undefined as { process: CanvasElement; distance: number } | undefined);
+  return match && match.distance <= maxDistance ? match.process : undefined;
+}
+
+function buildLeanAssistant(canvas: CanvasState, simulation: ReturnType<typeof calculateCanvasSimulation>) {
+  const advice: LeanAdvice[] = [];
+  const reverseRoute = simulation.rawMaterialEntry && simulation.finalCustomer
+    ? centerOf(simulation.rawMaterialEntry).x > centerOf(simulation.finalCustomer).x
+    : false;
+  const processes = reverseRoute ? [...simulation.processElements].reverse() : simulation.processElements;
+  const metricsById = new globalThis.Map(simulation.processMetrics.map((metric) => [metric.element.id, metric]));
+  const stockKinds: ElementKind[] = ['inventory','safety-stock','buffer','supermarket','fifo','waiting-time'];
+
+  if (!simulation.rawMaterialEntry) advice.push({
+    id: 'missing-entry', level: 'critical', area: 'dados', title: 'Entrada do fluxo não definida',
+    why: 'Sem matéria-prima o assistente não consegue avaliar o fluxo completo de porta a porta.',
+    action: 'Adicione o estoque de matéria-prima no início do MFV.',
+  });
+  if (!simulation.finalCustomer) advice.push({
+    id: 'missing-customer', level: 'critical', area: 'dados', title: 'Cliente final não definido',
+    why: 'O valor deve ser analisado até o cliente que puxa a demanda.',
+    action: 'Adicione o cliente final no término do MFV.',
+  });
+  if (!processes.length) advice.push({
+    id: 'missing-processes', level: 'critical', area: 'dados', title: 'Fluxo sem processos',
+    why: 'Não existem etapas produtivas suficientes para analisar capacidade, continuidade ou puxada.',
+    action: 'Adicione e preencha pelo menos um processo produtivo.',
+  });
+
+  simulation.invalidProcesses.forEach((metric) => advice.push({
+    id: `invalid-${metric.element.id}`, level: 'critical', area: 'dados', title: `${metric.element.label}: tempo de ciclo ausente`,
+    why: 'Sem T/C não é possível comparar a capacidade do processo com o takt.',
+    action: 'Meça o ciclo no gemba e informe o valor observado.', targetId: metric.element.id, targetLabel: metric.element.label,
+  }));
+  simulation.overloadedProcesses.forEach((metric) => {
+    const guidance = bottleneckGuidance(metric, canvas.assumptions);
+    advice.push({
+      id: `overload-${metric.element.id}`, level: 'critical', area: 'fluxo', title: `${metric.element.label}: capacidade abaixo da necessidade`,
+      why: `A carga calculada é ${metric.loadPercent.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% e o processo não sustenta a demanda deste cenário.`,
+      action: guidance.actions.join(' '), targetId: metric.element.id, targetLabel: metric.element.label,
+    });
+  });
+
+  for (let index = 0; index < processes.length - 1; index += 1) {
+    const upstream = processes[index];
+    const downstream = processes[index + 1];
+    const upstreamCenter = centerOf(upstream);
+    const downstreamCenter = centerOf(downstream);
+    const lowX = Math.min(upstreamCenter.x, downstreamCenter.x);
+    const highX = Math.max(upstreamCenter.x, downstreamCenter.x);
+    const lowY = Math.min(upstreamCenter.y, downstreamCenter.y) - 140;
+    const highY = Math.max(upstreamCenter.y, downstreamCenter.y) + 140;
+    const between = canvas.elements.filter((element) => stockKinds.includes(element.kind) && (() => {
+      const center = centerOf(element);
+      return center.x > lowX && center.x < highX && center.y >= lowY && center.y <= highY;
+    })());
+    const pullControl = between.find((element) => ['supermarket','fifo'].includes(element.kind));
+    const upstreamMetric = metricsById.get(upstream.id);
+    const downstreamMetric = metricsById.get(downstream.id);
+    const largestCycle = Math.max(upstreamMetric?.effectiveCycleSec ?? 0, downstreamMetric?.effectiveCycleSec ?? 0, 1);
+    const cycleDifference = Math.abs((upstreamMetric?.effectiveCycleSec ?? 0) - (downstreamMetric?.effectiveCycleSec ?? 0)) / largestCycle;
+    const setupMinutes = Math.max(Number(upstream.data.setup) || 0, Number(downstream.data.setup) || 0);
+    const continuousCandidate = Boolean(upstreamMetric?.valid && downstreamMetric?.valid
+      && !upstreamMetric?.overloaded && !downstreamMetric?.overloaded
+      && cycleDifference <= 0.2 && setupMinutes <= 5);
+
+    if (continuousCandidate) {
+      advice.push({
+        id: `flow-${upstream.id}-${downstream.id}`, level: 'opportunity', area: 'fluxo',
+        title: `Avaliar fluxo contínuo: ${upstream.label} → ${downstream.label}`,
+        why: `Os ciclos estão próximos e ambos atendem ao takt${between.length ? ', mas existe estoque entre eles' : ''}.`,
+        action: between.length
+          ? 'Teste remover o estoque intermediário e transferir uma peça diretamente ao processo seguinte.'
+          : 'Confirme proximidade física, trabalho padronizado e transferência de uma peça por vez.',
+        targetId: between[0]?.id ?? upstream.id, targetLabel: between[0]?.label ?? upstream.label,
+      });
+    } else if (!pullControl && upstreamMetric?.valid && downstreamMetric?.valid) {
+      const preferFifo = upstream.kind === 'shared-process' || downstream.kind === 'shared-process';
+      advice.push({
+        id: `disconnect-${upstream.id}-${downstream.id}`, level: 'critical', area: 'pull',
+        title: `Fluxo desconectado entre ${upstream.label} e ${downstream.label}`,
+        why: cycleDifference > 0.2
+          ? 'A diferença de ritmo pode criar falta de material ou acúmulo sem um limite explícito.'
+          : 'Setup, disponibilidade ou sobrecarga impedem recomendar fluxo contínuo com segurança.',
+        action: preferFifo
+          ? 'Crie uma FIFO com limite máximo e preserve a sequência entre os processos.'
+          : 'Crie um supermercado com reposição puxada pelo consumo do processo seguinte.',
+        targetId: between[0]?.id ?? upstream.id, targetLabel: between[0]?.label ?? upstream.label,
+      });
+    }
+  }
+
+  const recommendedPacemaker = processes[processes.length - 1];
+  if (recommendedPacemaker && !simulation.pacemakerMarkers.length) advice.push({
+    id: 'pacemaker-missing', level: 'critical', area: 'marcapasso', title: 'Processo marcapasso não definido',
+    why: 'A programação deve ser enviada a um único ponto; o processo mais a jusante é o candidato inicial.',
+    action: `Adicione o marcapasso e vincule-o a ${recommendedPacemaker.label}.`,
+    targetId: recommendedPacemaker.id, targetLabel: recommendedPacemaker.label,
+  });
+  if (recommendedPacemaker && simulation.pacemaker && simulation.pacemaker.id !== recommendedPacemaker.id) advice.push({
+    id: 'pacemaker-position', level: 'opportunity', area: 'marcapasso', title: 'Revisar a posição do marcapasso',
+    why: `${simulation.pacemaker.label} está programado, mas ${recommendedPacemaker.label} é o processo produtivo mais próximo do cliente.`,
+    action: `Valide no gemba; se não houver uma razão específica, programe somente ${recommendedPacemaker.label}.`,
+    targetId: recommendedPacemaker.id, targetLabel: recommendedPacemaker.label,
+  });
+  if (recommendedPacemaker && simulation.pacemaker?.id === recommendedPacemaker.id) advice.push({
+    id: 'pacemaker-ok', level: 'good', area: 'marcapasso', title: `Marcapasso coerente: ${recommendedPacemaker.label}`,
+    why: 'A programação está concentrada no processo produtivo mais a jusante.',
+    action: 'Mantenha os processos a montante respondendo por fluxo ou sinais puxados.',
+    targetId: recommendedPacemaker.id, targetLabel: recommendedPacemaker.label,
+  });
+
+  const informationKinds: CanvasArrow['kind'][] = [
+    'arrow-info-manual','arrow-info-electronic','arrow-schedule',
+    'arrow-info-manual-straight','arrow-info-electronic-straight',
+  ];
+  const scheduledProcesses = canvas.arrows
+    .filter((arrow) => informationKinds.includes(arrow.kind))
+    .map((arrow) => {
+      const anchored = processes.find((process) => process.id === arrow.endAnchor?.elementId);
+      return { arrow, process: anchored ?? nearestProcessToPoint(arrow.x2, arrow.y2, processes) };
+    })
+    .filter((item): item is { arrow: CanvasArrow; process: CanvasElement } => Boolean(item.process));
+  scheduledProcesses.filter((item) => item.process.id !== simulation.pacemaker?.id).forEach((item) => advice.push({
+    id: `schedule-${item.arrow.id}`, level: 'critical', area: 'programacao', title: `Programação enviada diretamente a ${item.process.label}`,
+    why: 'Programar vários processos cria empurrada, prioridades conflitantes e excesso de WIP.',
+    action: 'Remova esta programação direta e faça o processo responder ao fluxo ou ao sinal Kanban.',
+    targetId: item.arrow.id, targetLabel: item.process.label,
+  }));
+  if (simulation.pacemaker && !scheduledProcesses.some((item) => item.process.id === simulation.pacemaker?.id)) advice.push({
+    id: 'schedule-pacemaker', level: 'opportunity', area: 'programacao', title: 'Marcapasso sem programação visível',
+    why: 'O mapa não mostra como o Controle da Produção libera trabalho para o marcapasso.',
+    action: 'Conecte o Controle da Produção ao marcapasso com uma seta de programação.',
+    targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
+  });
+
+  simulation.pullBuffers.forEach((buffer) => {
+    const bufferCenter = centerOf(buffer);
+    const nearbyKanban = simulation.kanbanControls.find((kanban) => {
+      const kanbanCenter = centerOf(kanban);
+      return Math.hypot(bufferCenter.x - kanbanCenter.x, bufferCenter.y - kanbanCenter.y) <= 240;
+    });
+    if (!nearbyKanban) advice.push({
+      id: `kanban-missing-${buffer.id}`, level: 'critical', area: 'kanban', title: `${buffer.label}: reposição sem Kanban`,
+      why: 'O estoque controlado existe, mas não há um sinal próximo que autorize a reposição.',
+      action: 'Adicione Kanban de retirada/produção e informe a quantidade de cartões.',
+      targetId: buffer.id, targetLabel: buffer.label,
+    });
+    if (Number(buffer.data.qty) <= 0) advice.push({
+      id: `limit-missing-${buffer.id}`, level: 'critical', area: 'pull', title: `${buffer.label}: limite não informado`,
+      why: 'Sem limite máximo, o controle puxado não consegue impedir o crescimento do WIP.',
+      action: 'Informe o limite de unidades permitido neste ponto.', targetId: buffer.id, targetLabel: buffer.label,
+    });
+  });
+  simulation.kanbanControls.filter((kanban) => Number(kanban.data.qty) <= 0).forEach((kanban) => advice.push({
+    id: `cards-missing-${kanban.id}`, level: 'critical', area: 'kanban', title: 'Kanban sem quantidade de cartões',
+    why: 'Um cartão sem quantidade não define o limite de trabalho autorizado.',
+    action: 'Informe a quantidade inicial de cartões; o dimensionamento completo virá com embalagem e reposição.',
+    targetId: kanban.id, targetLabel: kanban.label,
+  }));
+
+  if (simulation.pacemaker && !simulation.heijunkaBoxes.length) advice.push({
+    id: 'heijunka-missing', level: 'opportunity', area: 'marcapasso', title: 'Nivelamento ainda não representado',
+    why: 'O marcapasso existe, mas o mapa não mostra como volume e mix serão nivelados.',
+    action: 'Adicione um Heijunka Box próximo ao marcapasso.', targetId: simulation.pacemaker.id, targetLabel: simulation.pacemaker.label,
+  });
+  if (simulation.pullSystemActive) advice.push({
+    id: 'pull-ok', level: 'good', area: 'pull', title: `Sistema puxado ativo · WIP máximo ${simulation.pullWipLimit}`,
+    why: 'Supermercado/FIFO e Kanban possuem limites e já controlam a liberação da simulação.',
+    action: 'Valide se o limite representa a condição real e observe as ordens bloqueadas durante o teste.',
+    targetId: simulation.pullBuffers[0]?.id, targetLabel: simulation.pullBuffers[0]?.label,
+  });
+
+  const rank: Record<LeanAdviceLevel, number> = { critical: 0, opportunity: 1, good: 2 };
+  return advice.sort((left, right) => rank[left.level] - rank[right.level]);
+}
+
 function calculateLiveFlow(simulation: ReturnType<typeof calculateCanvasSimulation>, assumptions: ScenarioAssumptions, elapsedSec: number) {
   const availableSeconds = assumptions.availableMinutesPerDay * 60;
   const pacemakerInterval = simulation.pacemakerMetric?.capacityPerDay && Number.isFinite(simulation.pacemakerMetric.capacityPerDay)
@@ -1621,6 +1822,59 @@ function ComparisonModal({ workspace, onSelect, onClose }: { workspace: CanvasWo
   );
 }
 
+function LeanAssistantModal({ advice, onFocus, onClose }: {
+  advice: LeanAdvice[];
+  onFocus: (targetId: string) => void;
+  onClose: () => void;
+}) {
+  const critical = advice.filter((item) => item.level === 'critical').length;
+  const opportunities = advice.filter((item) => item.level === 'opportunity').length;
+  const confirmed = advice.filter((item) => item.level === 'good').length;
+  const score = Math.max(0, 100 - critical * 14 - opportunities * 5);
+  const areaLabels: Record<LeanAdviceArea, string> = {
+    fluxo: 'Fluxo contínuo', pull: 'Sistema puxado', marcapasso: 'Marcapasso',
+    programacao: 'Programação', kanban: 'Kanban', dados: 'Dados',
+  };
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+  return createPortal(
+    <div className="editor-overlay" role="dialog" aria-modal="true" aria-labelledby="lean-assistant-title">
+      <button className="editor-backdrop" onClick={onClose} aria-label="Fechar Assistente Lean" />
+      <section className="editor-window lean-assistant-modal">
+        <header>
+          <div><h2 id="lean-assistant-title">Assistente Lean</h2><p>Leitura automática da coerência do Estado atual ou futuro.</p></div>
+          <button className="icon-button" onClick={onClose}><X size={20}/></button>
+        </header>
+        <div className="lean-assistant-summary">
+          <div className="lean-score"><strong>{score}</strong><span>coerência</span></div>
+          <div><strong>{critical}</strong><span>correções prioritárias</span></div>
+          <div><strong>{opportunities}</strong><span>oportunidades</span></div>
+          <div><strong>{confirmed}</strong><span>pontos coerentes</span></div>
+        </div>
+        <div className="lean-assistant-note"><BookOpen size={14}/><span>As sugestões usam regras de MFV. Confirme tempos, restrições e decisões no gemba antes de implantar.</span></div>
+        <div className="lean-advice-list">
+          {advice.length === 0 ? <div className="lean-advice-empty"><CheckCircle2 size={28}/><strong>Nenhuma incoerência encontrada</strong><span>Continue validando o mapa com quem executa o processo.</span></div> : advice.map((item) => (
+            <article key={item.id} className={`lean-advice-card ${item.level}`}>
+              <div className="lean-advice-card-heading">
+                <span className="lean-advice-area">{areaLabels[item.area]}</span>
+                <span className="lean-advice-level">{item.level === 'critical' ? 'Corrigir' : item.level === 'opportunity' ? 'Melhorar' : 'Coerente'}</span>
+              </div>
+              <h3>{item.title}</h3>
+              <div className="lean-advice-copy"><span>Por quê</span><p>{item.why}</p></div>
+              <div className="lean-advice-copy action"><span>O que fazer</span><p>{item.action}</p></div>
+              {item.targetId && <button className="lean-focus-button" onClick={() => onFocus(item.targetId!)}><Route size={13}/>Mostrar no MFV{item.targetLabel ? ` · ${item.targetLabel}` : ''}</button>}
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
 function ScenarioPill({ kind }: { kind: ActiveKind }) {
   return <span className={`scenario-pill ${kind}`}>{kind==='current'?'Estado atual':'Estado futuro'}</span>;
 }
@@ -1631,6 +1885,8 @@ export default function App() {
   const activeFuture = workspace.futures.find((variant) => variant.id === workspace.activeFutureId) ?? workspace.futures[0];
   const canvas = activeKind === 'current' ? workspace.current : activeFuture.canvas;
   const simulation = calculateCanvasSimulation(canvas);
+  const leanAdvice = buildLeanAssistant(canvas, simulation);
+  const leanActionCount = leanAdvice.filter((item) => item.level !== 'good').length;
   const simulatedDaySeconds = canvas.assumptions.availableMinutesPerDay * 60;
   const timelineSourceElements = [...simulation.processElements, ...simulation.inventoryElements];
   const automaticTimelinePosition = timelineSourceElements.length
@@ -1676,6 +1932,7 @@ export default function App() {
   const [demandOpen, setDemandOpen] = useState(false);
   const [scenarioCreateOpen, setScenarioCreateOpen] = useState(false);
   const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [leanAssistantOpen, setLeanAssistantOpen] = useState(false);
   const [liveRunning, setLiveRunning] = useState(false);
   const [liveElapsedSec, setLiveElapsedSec] = useState(0);
   const [liveSpeed, setLiveSpeed] = useState(300);
@@ -1688,6 +1945,7 @@ export default function App() {
     setSelectedId(null);
     setEditingEl(null);
     setEditingArrow(null);
+    setLeanAssistantOpen(false);
     setLiveRunning(false);
     setLiveElapsedSec(0);
   }, [activeKind, workspace.activeFutureId]);
@@ -1723,6 +1981,26 @@ export default function App() {
       return;
     }
     setEditingEl(element);
+  };
+
+  const focusAssistantTarget = (targetId: string) => {
+    const element = canvas.elements.find((candidate) => candidate.id === targetId);
+    const arrow = canvas.arrows.find((candidate) => candidate.id === targetId);
+    const bounds = svgRef.current?.getBoundingClientRect();
+    if (bounds && element) {
+      const size = elementDimensions(element);
+      setPan({
+        x: bounds.width / 2 - (element.x + size.width / 2) * zoom,
+        y: bounds.height / 2 - (element.y + size.height / 2) * zoom,
+      });
+    } else if (bounds && arrow) {
+      setPan({
+        x: bounds.width / 2 - ((arrow.x1 + arrow.x2) / 2) * zoom,
+        y: bounds.height / 2 - ((arrow.y1 + arrow.y2) / 2) * zoom,
+      });
+    }
+    setSelectedId(targetId);
+    setLeanAssistantOpen(false);
   };
 
   useEffect(() => {
@@ -2197,6 +2475,9 @@ export default function App() {
               ? <><AlertTriangle size={13}/><span>{simulation.leanWarnings[0]}{simulation.leanWarnings.length > 1 ? ` +${simulation.leanWarnings.length - 1}` : ''}</span></>
               : <><CheckCircle2 size={13}/><span>Fluxo puxado configurado e limitado.</span></>}
           </div>
+          <button className="lean-assistant-button" onClick={() => setLeanAssistantOpen(true)}>
+            <BookOpen size={14}/><span>Assistente Lean</span><b>{leanActionCount}</b>
+          </button>
         </div>
 
         {(liveRunning || liveElapsedSec > 0) && <div className="live-simulation-bar no-print">
@@ -2368,6 +2649,7 @@ export default function App() {
         onClose={() => setDemandOpen(false)} />}
       {scenarioCreateOpen && <ScenarioCreateModal onCreate={createScenario} onClose={() => setScenarioCreateOpen(false)} />}
       {comparisonOpen && <ComparisonModal workspace={workspace} onSelect={selectFuture} onClose={() => setComparisonOpen(false)} />}
+      {leanAssistantOpen && <LeanAssistantModal advice={leanAdvice} onFocus={focusAssistantTarget} onClose={() => setLeanAssistantOpen(false)} />}
     </div>
   );
 }
