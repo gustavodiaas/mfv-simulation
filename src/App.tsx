@@ -677,6 +677,12 @@ function LibraryThumb({ kind, accentColor }: { kind: ElementKind; accentColor: s
       {kind==='arrow-schedule' && (<g><path d="M3,36 Q22,1 40,18" fill="none" stroke="#333" strokeWidth={2}/><polygon points="34,13 42,19 34,23" fill="#333"/></g>)}
       {kind==='arrow-shipment' && (<g><path d="M3,22 H39" fill="none" stroke="#333" strokeWidth={2} strokeDasharray="7 4"/><polygon points="34,17 42,22 34,27" fill="#333"/></g>)}
       {kind==='arrow-physical' && (<path d="M3,16 H30 L30,11 L41,22 L30,33 L30,28 H3 Z" fill="white" stroke="#111" strokeWidth={2}/>)}
+      {kind==='line-straight' && (<line x1={3} y1={22} x2={41} y2={22} stroke="#111" strokeWidth={2}/>)}
+      {kind==='line-dashed' && (<line x1={3} y1={22} x2={41} y2={22} stroke="#111" strokeWidth={2} strokeDasharray="6 4"/>)}
+      {kind==='arrow-straight' && (<g><line x1={3} y1={22} x2={36} y2={22} stroke="#111" strokeWidth={2}/><polygon points="34,16 42,22 34,28" fill="#111"/></g>)}
+      {kind==='arrow-double' && (<g><line x1={9} y1={22} x2={35} y2={22} stroke="#111" strokeWidth={2}/><polygon points="10,16 2,22 10,28" fill="#111"/><polygon points="34,16 42,22 34,28" fill="#111"/></g>)}
+      {kind==='arrow-info-manual-straight' && (<g><line x1={3} y1={22} x2={36} y2={22} stroke="#111" strokeWidth={1.6}/><polygon points="34,17 42,22 34,27" fill="#111"/></g>)}
+      {kind==='arrow-info-electronic-straight' && (<g><line x1={3} y1={22} x2={36} y2={22} stroke="#111" strokeWidth={1.8} strokeDasharray="4 3"/><polygon points="20,10 17,19 21,19 18,30 27,17 22,17" fill="#111"/><polygon points="34,17 42,22 34,27" fill="#111"/></g>)}
       <g transform="scale(.3)"><ExtendedSymbol el={{ id:'thumb', kind, x:0, y:0, label:'', data:{} }} selected={false} onEdit={() => undefined} /></g>
     </svg>
   );
@@ -739,6 +745,12 @@ function ArrowShape({ arrow, selected }: {
   const isSchedule = arrow.kind === 'arrow-schedule';
   const isShipment = arrow.kind === 'arrow-shipment';
   const isPhysical = arrow.kind === 'arrow-physical';
+  const isLineStraight = arrow.kind === 'line-straight';
+  const isLineDashed = arrow.kind === 'line-dashed';
+  const isArrowStraight = arrow.kind === 'arrow-straight';
+  const isArrowDouble = arrow.kind === 'arrow-double';
+  const isManualStraight = arrow.kind === 'arrow-info-manual-straight';
+  const isElectronicStraight = arrow.kind === 'arrow-info-electronic-straight';
 
   const color = '#111111';
   const dash = (isElec||isAdj||isShipment) ? (isAdj?'3 3':isShipment?'9 6':'5 3') : 'none';
@@ -751,7 +763,7 @@ function ArrowShape({ arrow, selected }: {
   return (
     <g pointerEvents="none">
       <defs>
-        <marker id={`m-${id}`} markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+        <marker id={`m-${id}`} markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto-start-reverse">
           <polygon points="0,0 9,3.5 0,7" fill={color} />
         </marker>
         <pattern id={`zebra-${id}`} width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(24)">
@@ -776,6 +788,23 @@ function ArrowShape({ arrow, selected }: {
       ) : isSchedule ? (
         <path d={`M${arrow.x1},${arrow.y1} Q${mx},${Math.min(arrow.y1, arrow.y2)-90} ${ex},${ey}`}
           fill="none" stroke={color} strokeWidth={sw} markerEnd={`url(#m-${id})`} />
+      ) : isLineStraight ? (
+        <line x1={arrow.x1} y1={arrow.y1} x2={arrow.x2} y2={arrow.y2}
+          stroke={color} strokeWidth={sw} />
+      ) : isLineDashed ? (
+        <line x1={arrow.x1} y1={arrow.y1} x2={arrow.x2} y2={arrow.y2}
+          stroke={color} strokeWidth={sw} strokeDasharray="8 6" />
+      ) : isArrowDouble ? (
+        <line x1={arrow.x1} y1={arrow.y1} x2={arrow.x2} y2={arrow.y2}
+          stroke={color} strokeWidth={sw} markerStart={`url(#m-${id})`} markerEnd={`url(#m-${id})`} />
+      ) : isArrowStraight || isManualStraight || isElectronicStraight ? (
+        <>
+          <line x1={arrow.x1} y1={arrow.y1} x2={ex} y2={ey}
+            stroke={color} strokeWidth={isManualStraight ? (selected ? 2.6 : 1.6) : sw}
+            strokeDasharray={isElectronicStraight ? '5 3' : undefined} markerEnd={`url(#m-${id})`} />
+          {isElectronicStraight && <polygon points={`${mx-4},${my-11} ${mx-7},${my-1} ${mx-2},${my-1} ${mx-6},${my+7} ${mx+4},${my-5} ${mx-1},${my-5}`}
+            fill={color} opacity={0.85} />}
+        </>
       ) : (
         <>
           <path d={`M${arrow.x1},${arrow.y1} Q${mx},${my-30} ${ex},${ey}`}
@@ -804,7 +833,7 @@ function ArrowInteractionShape({ arrow, onMouseDown, onClick, onDoubleClick }: {
     ? `M${arrow.x1},${arrow.y1} Q${mx-dy*.25},${my+dx*.25} ${arrow.x2},${arrow.y2}`
     : arrow.kind === 'arrow-schedule'
       ? `M${arrow.x1},${arrow.y1} Q${mx},${Math.min(arrow.y1, arrow.y2)-90} ${arrow.x2},${arrow.y2}`
-      : ['arrow-push', 'arrow-physical', 'arrow-shipment'].includes(arrow.kind)
+      : ['arrow-push', 'arrow-physical', 'arrow-shipment', 'line-straight', 'line-dashed', 'arrow-straight', 'arrow-double', 'arrow-info-manual-straight', 'arrow-info-electronic-straight'].includes(arrow.kind)
         ? `M${arrow.x1},${arrow.y1} L${arrow.x2},${arrow.y2}`
         : `M${arrow.x1},${arrow.y1} Q${mx},${my-30} ${arrow.x2},${arrow.y2}`;
   return <path d={path} fill="none" stroke="transparent" strokeWidth={18} pointerEvents="stroke"
@@ -1281,6 +1310,12 @@ function ArrowPopover({ arrow, onUpdate, onDelete, onClose }: {
     { value: 'arrow-schedule',        label: 'Programação curva' },
     { value: 'arrow-shipment',        label: 'Transporte externo' },
     { value: 'arrow-physical',        label: 'Fluxo físico (chevron)' },
+    { value: 'line-straight',         label: 'Linha reta (sem ponta)' },
+    { value: 'line-dashed',           label: 'Linha tracejada (sem ponta)' },
+    { value: 'arrow-straight',        label: 'Seta reta' },
+    { value: 'arrow-double',          label: 'Seta dupla' },
+    { value: 'arrow-info-manual-straight', label: 'Informação manual reta' },
+    { value: 'arrow-info-electronic-straight', label: 'Informação eletrônica reta' },
   ];
   return createPortal(
     <div className="process-popover" ref={ref} style={{ width: 280 }}>

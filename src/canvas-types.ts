@@ -50,6 +50,12 @@ export type ElementKind =
   | 'arrow-schedule'
   | 'arrow-shipment'
   | 'arrow-physical'
+  | 'line-straight'
+  | 'line-dashed'
+  | 'arrow-straight'
+  | 'arrow-double'
+  | 'arrow-info-manual-straight'
+  | 'arrow-info-electronic-straight'
   // Anotação
   | 'kaizen'
   | 'intervention'
@@ -79,7 +85,7 @@ export interface ArrowAnchor {
 
 export interface CanvasArrow {
   id: string;
-  kind: 'arrow-push' | 'arrow-pull' | 'arrow-info-manual' | 'arrow-info-electronic' | 'arrow-adjustment' | 'arrow-schedule' | 'arrow-shipment' | 'arrow-physical';
+  kind: 'arrow-push' | 'arrow-pull' | 'arrow-info-manual' | 'arrow-info-electronic' | 'arrow-adjustment' | 'arrow-schedule' | 'arrow-shipment' | 'arrow-physical' | 'line-straight' | 'line-dashed' | 'arrow-straight' | 'arrow-double' | 'arrow-info-manual-straight' | 'arrow-info-electronic-straight';
   x1: number; y1: number;
   x2: number; y2: number;
   label?: string;
@@ -115,6 +121,8 @@ export const DEFAULT_TRUCK_COLOR = '#eee9df';
 export const ARROW_KINDS: ElementKind[] = [
   'arrow-push', 'arrow-pull', 'arrow-info-manual', 'arrow-info-electronic', 'arrow-adjustment',
   'arrow-schedule', 'arrow-shipment', 'arrow-physical',
+  'line-straight', 'line-dashed', 'arrow-straight', 'arrow-double',
+  'arrow-info-manual-straight', 'arrow-info-electronic-straight',
 ];
 
 export const LIBRARY: LibraryItem[] = [
@@ -170,6 +178,12 @@ export const LIBRARY: LibraryItem[] = [
   { kind: 'arrow-schedule',        label: 'Programação curva', group: 'fluxo', defaultLabel: 'Programação', defaultData: {}, w: 0, h: 0 },
   { kind: 'arrow-shipment',        label: 'Transporte externo', group: 'fluxo', defaultLabel: 'Entrega', defaultData: {}, w: 0, h: 0 },
   { kind: 'arrow-physical',        label: 'Fluxo físico',      group: 'fluxo', defaultLabel: '', defaultData: {}, w: 0, h: 0 },
+  { kind: 'line-straight',         label: 'Linha reta',        group: 'fluxo', defaultLabel: '', defaultData: {}, w: 0, h: 0 },
+  { kind: 'line-dashed',           label: 'Linha tracejada',   group: 'fluxo', defaultLabel: '', defaultData: {}, w: 0, h: 0 },
+  { kind: 'arrow-straight',        label: 'Seta reta',         group: 'fluxo', defaultLabel: '', defaultData: {}, w: 0, h: 0 },
+  { kind: 'arrow-double',          label: 'Seta dupla',        group: 'fluxo', defaultLabel: '', defaultData: {}, w: 0, h: 0 },
+  { kind: 'arrow-info-manual-straight', label: 'Info manual reta', group: 'fluxo', defaultLabel: '', defaultData: {}, w: 0, h: 0 },
+  { kind: 'arrow-info-electronic-straight', label: 'Info eletrônica reta', group: 'fluxo', defaultLabel: '', defaultData: {}, w: 0, h: 0 },
   // ── Anotação
   { kind: 'kaizen',            label: 'Kaizen burst',       group: 'anotacao',   defaultLabel: 'Kaizen',              defaultData: {},                                               w: 78,  h: 78  },
   { kind: 'intervention',      label: 'Ponto intervenção',  group: 'anotacao',   defaultLabel: 'Melhoria',            defaultData: {},                                               w: 70,  h: 70  },
