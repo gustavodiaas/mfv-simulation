@@ -112,6 +112,20 @@ function calculateProcessLoad(element: CanvasElement, dailyDemand: number, cumul
   return { effectiveCycleSec, loadPercent, valid, overloaded: valid && loadPercent > 100, capacityPerDay, requiredInputPerDay };
 }
 
+function nearestProcess(marker: CanvasElement, processes: CanvasElement[]) {
+  if (!processes.length) return undefined;
+  const markerSize = elementDimensions(marker);
+  const markerCenter = { x: marker.x + markerSize.width / 2, y: marker.y + markerSize.height / 2 };
+  return processes.reduce((nearest, process) => {
+    const processSize = elementDimensions(process);
+    const distance = Math.hypot(
+      markerCenter.x - (process.x + processSize.width / 2),
+      markerCenter.y - (process.y + processSize.height / 2),
+    );
+    return !nearest || distance < nearest.distance ? { process, distance } : nearest;
+  }, undefined as { process: CanvasElement; distance: number } | undefined)?.process;
+}
+
 function calculateCanvasSimulation(canvas: CanvasState) {
   const { dailyDemand, taktTimeSec } = calculateScenario(canvas.assumptions);
   const rawMaterialEntry = canvas.elements
@@ -155,6 +169,30 @@ function calculateCanvasSimulation(canvas: CanvasState) {
   const finiteCapacities = processMetrics.map((metric) => metric.capacityPerDay).filter(Number.isFinite);
   const bottleneckCapacity = finiteCapacities.length ? Math.min(...finiteCapacities) : 0;
   const bottleneck = processMetrics.find((metric) => metric.capacityPerDay === bottleneckCapacity)?.element;
+  const pacemakerMarkers = canvas.elements.filter((element) => element.kind === 'pacemaker');
+  const pacemakerMarker = pacemakerMarkers[0];
+  const linkedPacemaker = pacemakerMarker
+    ? processElements.find((element) => element.id === pacemakerMarker.data.processId)
+      ?? nearestProcess(pacemakerMarker, processElements)
+    : undefined;
+  const pacemakerMetric = processMetrics.find((metric) => metric.element.id === linkedPacemaker?.id);
+  const heijunkaBoxes = canvas.elements.filter((element) => element.kind === 'heijunka');
+  const pullBuffers = canvas.elements.filter((element) => ['supermarket','fifo'].includes(element.kind));
+  const kanbanControls = canvas.elements.filter((element) => ['kanban-production','kanban-withdrawal','signal-kanban','kanban-post'].includes(element.kind));
+  const kanbanCardTotal = kanbanControls.reduce((sum, element) => sum + Math.floor(Math.max(0, Number(element.data.qty) || 0)), 0);
+  const configuredPullLimits = [...pullBuffers, ...kanbanControls]
+    .map((element) => Math.floor(Math.max(0, Number(element.data.qty) || 0)))
+    .filter((quantity) => quantity > 0);
+  const pullWipLimit = configuredPullLimits.length ? Math.min(...configuredPullLimits) : 0;
+  const pullSystemActive = pullBuffers.length > 0 && kanbanControls.length > 0 && pullWipLimit > 0;
+  const leanWarnings: string[] = [];
+  if (!pacemakerMarker) leanWarnings.push('Defina um processo marcapasso.');
+  if (pacemakerMarkers.length > 1) leanWarnings.push('Mantenha somente um marcapasso.');
+  if (pacemakerMarker && !linkedPacemaker) leanWarnings.push('Vincule o marcapasso a um processo.');
+  if (heijunkaBoxes.length > 0 && !linkedPacemaker) leanWarnings.push('O heijunka precisa de um marcapasso válido.');
+  if (pullBuffers.length > 0 && kanbanControls.length === 0) leanWarnings.push('Adicione Kanban ao supermercado ou FIFO.');
+  if (kanbanControls.length > 0 && pullBuffers.length === 0) leanWarnings.push('Adicione supermercado ou FIFO ao circuito Kanban.');
+  if ((pullBuffers.length > 0 || kanbanControls.length > 0) && pullWipLimit === 0) leanWarnings.push('Informe um limite maior que zero no controle puxado.');
   const stockKinds: ElementKind[] = ['inventory','safety-stock','buffer','supermarket','fifo','waiting-time'];
   const inventoryElements = canvas.elements
     .filter((element) => stockKinds.includes(element.kind))
@@ -197,6 +235,16 @@ function calculateCanvasSimulation(canvas: CanvasState) {
     overloadedProcesses: processMetrics.filter((metric) => metric.overloaded),
     bottleneckCapacity,
     bottleneck,
+    pacemakerMarkers,
+    pacemaker: linkedPacemaker,
+    pacemakerMetric,
+    heijunkaBoxes,
+    pullBuffers,
+    kanbanControls,
+    kanbanCardTotal,
+    pullWipLimit,
+    pullSystemActive,
+    leanWarnings,
     inventoryDays,
     waitingTimeMin,
     waitingLeadTimeDays,
@@ -208,6 +256,38 @@ function calculateCanvasSimulation(canvas: CanvasState) {
     finalCustomer,
     routeReady: Boolean(rawMaterialEntry && finalCustomer),
     productionRouteElements,
+  };
+}
+
+function calculateLiveFlow(simulation: ReturnType<typeof calculateCanvasSimulation>, assumptions: ScenarioAssumptions, elapsedSec: number) {
+  const availableSeconds = assumptions.availableMinutesPerDay * 60;
+  const pacemakerInterval = simulation.pacemakerMetric?.capacityPerDay && Number.isFinite(simulation.pacemakerMetric.capacityPerDay)
+    ? availableSeconds / simulation.pacemakerMetric.capacityPerDay
+    : 0;
+  const releaseInterval = Math.max(simulation.taktTimeSec, pacemakerInterval);
+  const demanded = Number.isFinite(releaseInterval) && releaseInterval > 0
+    ? Math.floor(elapsedSec / releaseInterval) + 1
+    : 0;
+  const completionInterval = simulation.bottleneckCapacity > 0
+    ? availableSeconds / simulation.bottleneckCapacity
+    : Infinity;
+  const nominalLeadSec = simulation.processMetrics.reduce((sum, metric) => sum + metric.effectiveCycleSec, 0)
+    + simulation.waitingTimeMin * 60;
+  const potentialCompleted = Number.isFinite(completionInterval) && elapsedSec >= nominalLeadSec
+    ? Math.floor((elapsedSec - nominalLeadSec) / completionInterval) + 1
+    : 0;
+  const allowedInFlow = simulation.pullSystemActive ? simulation.pullWipLimit : Infinity;
+  const launched = Math.min(demanded, potentialCompleted + allowedInFlow);
+  const completed = Math.min(launched, potentialCompleted);
+  return {
+    releaseInterval,
+    demanded,
+    launched,
+    completed,
+    wip: Math.max(0, launched - completed),
+    blocked: Math.max(0, demanded - launched),
+    completionInterval,
+    nominalLeadSec,
   };
 }
 
@@ -536,8 +616,8 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
   'finished-goods':     [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'color', label: 'Cor do produto acabado', type: 'color' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   warehouse:            [{ key: 'label', label: 'Nome', type: 'text' },{ key: 'color', label: 'Cor do armazém', type: 'color' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
   buffer:               [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
-  supermarket:          [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
-  fifo:                 [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
+  supermarket:          [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Limite de WIP', suffix: 'un' }],
+  fifo:                 [{ key: 'label', label: 'Rótulo', type: 'text' },{ key: 'qty', label: 'Limite da fila', suffix: 'un' }],
   'waiting-time':       [{ key: 'label', label: 'Tipo de espera', type: 'text' },{ key: 'durationMin', label: 'Duração', suffix: 'min' }],
   'resource-zone':      [{ key: 'label', label: 'Título da área', type: 'text' }],
   'kanban-production':  [{ key: 'qty', label: 'Quantidade', suffix: 'un' }],
@@ -558,7 +638,7 @@ const FIELD_DEFS: Partial<Record<ElementKind, { key: string; label: string; type
   distance:             [{ key: 'distance', label: 'Distância', suffix: 'm' }],
   'quality-problem':    [{ key: 'label', label: 'Descrição', type: 'text' },{ key: 'qty', label: 'Ocorrências', suffix: 'un' }],
   bottleneck:           [{ key: 'label', label: 'Descrição', type: 'text' }],
-  pacemaker:            [{ key: 'label', label: 'Processo marcapasso', type: 'text' }],
+  pacemaker:            [],
   'future-principles':  [{ key: 'label', label: 'Princípios (uma linha por item)', type: 'textarea' }],
   'signal-kanban':      [{ key: 'qty', label: 'Quantidade de cartões', suffix: 'un' }],
   'kanban-post':        [{ key: 'label', label: 'Título', type: 'text' },{ key: 'qty', label: 'Quantidade de cartões', suffix: 'un' }],
@@ -914,24 +994,21 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
     return { id: element.id, x: element.x + size.width * 0.42, y: element.y + size.height * 0.43, element, size };
   });
   const route = centers;
+  const liveFlow = calculateLiveFlow(simulation, canvas.assumptions, elapsedSec);
   const availableSeconds = canvas.assumptions.availableMinutesPerDay * 60;
-  const completionInterval = simulation.bottleneckCapacity > 0 ? availableSeconds / simulation.bottleneckCapacity : Infinity;
   const nominalLeadSec = Math.max(20,
-    simulation.processMetrics.reduce((sum, metric) => sum + metric.effectiveCycleSec, 0)
-      + simulation.waitingTimeMin * 60
+    liveFlow.nominalLeadSec
       + route.length * 15,
   );
-  const hasThroughput = Number.isFinite(completionInterval) && completionInterval > 0;
-  const flowInterval = hasThroughput
-    ? Math.max(simulation.taktTimeSec, completionInterval)
-    : Infinity;
-  const releasedToFlow = hasThroughput
-    ? Math.max(0, Math.floor(elapsedSec / flowInterval) + 1)
-    : 0;
+  const flowInterval = liveFlow.releaseInterval;
+  const releasedToFlow = liveFlow.launched;
   const firstVisible = Math.max(0, releasedToFlow - 18);
   const tokens = Array.from({ length: releasedToFlow - firstVisible }, (_, offset) => {
     const index = firstVisible + offset;
-    const age = Math.max(0, elapsedSec - index * flowInterval);
+    const releaseTime = simulation.pullSystemActive && index >= simulation.pullWipLimit
+      ? liveFlow.nominalLeadSec + (index - simulation.pullWipLimit) * liveFlow.completionInterval
+      : index * flowInterval;
+    const age = Math.max(0, elapsedSec - releaseTime);
     const progress = Math.min(1, age / nominalLeadSec);
     const point = pointAlongRoute(route, progress);
     const truck = truckCenters.find((center) => Math.hypot(point.x - center.x, point.y - center.y) < 58);
@@ -944,6 +1021,13 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
   return (
     <g data-export-ui className="live-flow-overlay" pointerEvents="none">
       <polyline points={route.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={canvas.themeColor} strokeWidth={2} strokeDasharray="4 8" opacity={0.3} />
+      {simulation.pullBuffers.map((control) => {
+        const size = elementDimensions(control);
+        return <g key={`pull-${control.id}`} transform={`translate(${control.x + size.width / 2},${control.y - 17})`}>
+          <rect x={-48} y={-10} width={96} height={20} rx={10} fill="#7a5b00" />
+          <text x={0} y={4} textAnchor="middle" fontSize={7.5} fontWeight="850" fontFamily="Arial" fill="white">PULL · LIMITE {Math.max(0, Number(control.data.qty) || 0)}</text>
+        </g>;
+      })}
       {truckCenters.map((truck) => loadingTruckIds.has(truck.id) && <g key={`loading-${truck.id}`}>
         <rect x={truck.element.x - 5} y={truck.element.y - 5} width={truck.size.width + 10} height={truck.size.height + 10} rx={12} className="live-truck-loading" />
         <g transform={`translate(${truck.element.x + truck.size.width / 2 - 45},${truck.element.y - 30})`}>
@@ -955,7 +1039,8 @@ function LiveFlowOverlay({ canvas, simulation, elapsedSec }: {
         const size = elementDimensions(metric.element);
         const serviceRate = metric.capacityPerDay / availableSeconds;
         const arrivalRate = 1 / simulation.taktTimeSec;
-        const queue = Math.max(0, Math.floor(elapsedSec * (arrivalRate - serviceRate)));
+        const rawQueue = Math.max(0, Math.floor(elapsedSec * (arrivalRate - serviceRate)));
+        const queue = simulation.pullSystemActive ? Math.min(rawQueue, simulation.pullWipLimit) : rawQueue;
         const critical = metric.overloaded || queue > 0;
         return <g key={`live-${metric.element.id}`}>
           <rect x={metric.element.x - 7} y={metric.element.y - 27} width={size.width + 14} height={size.height + 34} rx={9}
@@ -1033,9 +1118,9 @@ function ElementSizeFields({ el, onUpdate }: {
   );
 }
 
-function ElementPopover({ el, onUpdate, onDelete, onClose }: {
+function ElementPopover({ el, processes, onUpdate, onDelete, onClose }: {
   el: CanvasElement; onUpdate: (p: Partial<CanvasElement>) => void;
-  onDelete: () => void; onClose: () => void;
+  processes: CanvasElement[]; onDelete: () => void; onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const fields = FIELD_DEFS[el.kind] ?? [{ key: 'label', label: 'Rótulo', type: 'text' }];
@@ -1065,6 +1150,18 @@ function ElementPopover({ el, onUpdate, onDelete, onClose }: {
         <button className="popover-close" onClick={onClose}><X size={15} /></button>
       </div>
       <div style={{ padding: '0 0 4px' }}>
+        {el.kind === 'pacemaker' && <div className="popover-field" style={{ marginTop: 8 }}>
+          <label>Processo programado</label>
+          <select className="popover-select" value={String(el.data.processId ?? '')}
+            onChange={(event) => {
+              const process = processes.find((candidate) => candidate.id === event.target.value);
+              onUpdate({ label: process?.label ?? 'Processo', data: { ...el.data, processId: event.target.value } });
+            }}>
+            <option value="">Selecione o processo</option>
+            {processes.map((process) => <option key={process.id} value={process.id}>{process.label || 'Processo sem nome'}</option>)}
+          </select>
+          <small className="popover-field-help">Somente este processo recebe a programação do fluxo.</small>
+        </div>}
         {fields.map((f) => (
           <div key={f.key} className="popover-field" style={{ marginTop: 8 }}>
             <label>{f.label}</label>
@@ -1657,7 +1754,24 @@ export default function App() {
       setSelectedId(a.id);
     } else {
       const draftData = { ...lib.defaultData };
+      if (kind === 'pacemaker') {
+        const existingPacemaker = canvas.elements.find((element) => element.kind === 'pacemaker');
+        if (existingPacemaker) {
+          window.alert('O MFV deve ter somente um processo marcapasso. Edite ou mova o marcapasso existente.');
+          setSelectedId(existingPacemaker.id);
+          return;
+        }
+        const candidate: CanvasElement = { id: '', kind, x: x - lib.w/2, y: y - lib.h/2, label: '', data: {} };
+        const process = nearestProcess(candidate, canvas.elements.filter((element) => ['process','shared-process'].includes(element.kind)));
+        if (process) {
+          draftData.processId = process.id;
+        }
+      }
       const draft: CanvasElement = { id: makeId(), kind, x: x - lib.w/2, y: y - lib.h/2, label: lib.defaultLabel, data: draftData };
+      if (kind === 'pacemaker' && draftData.processId) {
+        const process = canvas.elements.find((element) => element.id === draftData.processId);
+        draft.label = process?.label ?? draft.label;
+      }
       const snapped = snapElementPosition(draft, draft.x, draft.y, canvas.elements);
       const el = { ...draft, x: snapped.x, y: snapped.y };
       setCanvas((p) => ({ ...p, elements: [...p.elements, el] }));
@@ -1827,7 +1941,11 @@ export default function App() {
 
   const updateEl = (id: string, patch: Partial<CanvasElement>) => {
     setCanvas((p) => {
-      const elements = p.elements.map((el) => el.id===id ? { ...el, ...patch } : el);
+      const elements = p.elements
+        .map((el) => el.id===id ? { ...el, ...patch } : el)
+        .map((el) => el.kind === 'pacemaker' && el.data.processId === id && patch.label !== undefined
+          ? { ...el, label: String(patch.label) }
+          : el);
       return { ...p, elements, arrows: syncAnchoredArrows(p.arrows, elements) };
     });
     if (editingEl?.id === id) setEditingEl((p) => p ? { ...p, ...patch } : p);
@@ -1949,18 +2067,10 @@ export default function App() {
     });
   };
 
-  const liveLaunched = liveElapsedSec > 0 && Number.isFinite(simulation.taktTimeSec) && simulation.taktTimeSec > 0
-    ? Math.floor(liveElapsedSec / simulation.taktTimeSec) + 1
-    : 0;
-  const liveCompletionInterval = simulation.bottleneckCapacity > 0
-    ? simulatedDaySeconds / simulation.bottleneckCapacity
-    : Infinity;
-  const liveNominalLeadSec = simulation.processMetrics.reduce((sum, metric) => sum + metric.effectiveCycleSec, 0)
-    + simulation.waitingTimeMin * 60;
-  const liveCompleted = Number.isFinite(liveCompletionInterval) && liveElapsedSec >= liveNominalLeadSec
-    ? Math.min(liveLaunched, Math.floor((liveElapsedSec - liveNominalLeadSec) / liveCompletionInterval) + 1)
-    : 0;
-  const liveWip = Math.max(0, liveLaunched - liveCompleted);
+  const liveFlow = calculateLiveFlow(simulation, canvas.assumptions, liveElapsedSec);
+  const liveLaunched = liveFlow.launched;
+  const liveCompleted = liveFlow.completed;
+  const liveWip = liveFlow.wip;
   const liveClock = `${String(Math.floor(liveElapsedSec / 3600)).padStart(2, '0')}:${String(Math.floor((liveElapsedSec % 3600) / 60)).padStart(2, '0')}`;
   const toggleLiveSimulation = () => {
     if (!simulation.rawMaterialEntry) {
@@ -2074,6 +2184,21 @@ export default function App() {
           </div>
         </header>
 
+        <div className={`lean-control-strip no-print ${simulation.leanWarnings.length ? 'warning' : 'ready'}`}>
+          <div className="lean-control-title"><Route size={15}/><strong>Controle Lean</strong></div>
+          <div className="lean-control-facts">
+            <span>Marcapasso <b>{simulation.pacemaker?.label || 'não definido'}</b></span>
+            <span>Pull <b>{simulation.pullSystemActive ? `ativo · WIP ${simulation.pullWipLimit}` : 'incompleto'}</b></span>
+            <span>Kanban <b>{simulation.kanbanCardTotal} cartão(ões)</b></span>
+            <span>Heijunka <b>{simulation.heijunkaBoxes.length && simulation.pacemaker ? 'ativo' : 'inativo'}</b></span>
+          </div>
+          <div className="lean-control-message" title={simulation.leanWarnings.join(' ')}>
+            {simulation.leanWarnings.length
+              ? <><AlertTriangle size={13}/><span>{simulation.leanWarnings[0]}{simulation.leanWarnings.length > 1 ? ` +${simulation.leanWarnings.length - 1}` : ''}</span></>
+              : <><CheckCircle2 size={13}/><span>Fluxo puxado configurado e limitado.</span></>}
+          </div>
+        </div>
+
         {(liveRunning || liveElapsedSec > 0) && <div className="live-simulation-bar no-print">
           <div className="live-playback-controls">
             <button className="live-play-button" onClick={toggleLiveSimulation} aria-label={liveRunning ? 'Pausar simulação' : 'Continuar simulação'}>
@@ -2087,6 +2212,7 @@ export default function App() {
           <div className="live-metrics">
             <div><span>Tempo simulado</span><strong>{liveClock}</strong></div>
             <div><span>Ordens liberadas</span><strong>{liveLaunched}</strong></div>
+            <div className={liveFlow.blocked > 0 ? 'attention' : ''}><span>Bloqueadas pelo pull</span><strong>{liveFlow.blocked}</strong></div>
             <div><span>Caixas concluídas</span><strong>{liveCompleted}</strong></div>
             <div className={liveWip > 0 ? 'attention' : ''}><span>WIP em fluxo</span><strong>{liveWip}</strong></div>
             <div className={simulation.overloadedProcesses.length ? 'critical' : 'healthy'}><span>Situação</span><strong>{simulation.overloadedProcesses.length ? `${simulation.overloadedProcesses.length} quebra(m)` : 'Fluxo atende'}</strong></div>
@@ -2223,7 +2349,7 @@ export default function App() {
           onClose={() => setEditingEl(null)} />
       )}
       {editingEl && editingEl.kind !== 'identification' && (
-        <ElementPopover el={editingEl}
+        <ElementPopover el={editingEl} processes={simulation.processElements}
           onUpdate={(p) => updateEl(editingEl.id, p)}
           onDelete={() => deleteEl(editingEl.id)}
           onClose={() => setEditingEl(null)} />

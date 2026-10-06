@@ -52,6 +52,15 @@ function theme(accentColor = '#0071e3') {
   };
 }
 
+const STOCK_COLORS = {
+  accent: '#d6a400',
+  dark: '#8a6500',
+  darker: '#5f4700',
+  mid: '#f0ce40',
+  light: '#fff0a3',
+  pale: '#fff9dc',
+};
+
 function sel(selected: boolean, base: string) { return selected ? '#0071e3' : base; }
 function selW(selected: boolean) { return selected ? 2.5 : 1.5; }
 
@@ -223,9 +232,9 @@ export function ShippingPointSymbol({ el, selected, onEdit }: SymProps) {
 }
 
 // ── Estoque ───────────────────────────────────────────────────────────────────
-export function InventorySymbol({ el, selected, onEdit, dailyDemand = 0, accentColor }: SymProps) {
+export function InventorySymbol({ el, selected, onEdit, dailyDemand = 0 }: SymProps) {
   const w = 60; const h = 60;
-  const colors = theme(accentColor);
+  const colors = STOCK_COLORS;
   const inventoryDays = dailyDemand > 0 ? Number(el.data.qty ?? 0) / dailyDemand : 0;
   return (
     <g>
@@ -239,9 +248,9 @@ export function InventorySymbol({ el, selected, onEdit, dailyDemand = 0, accentC
 }
 
 // ── Buffer ────────────────────────────────────────────────────────────────────
-export function BufferSymbol({ el, selected, onEdit, accentColor }: SymProps) {
+export function BufferSymbol({ el, selected, onEdit }: SymProps) {
   const w = 80; const h = 60;
-  const colors = theme(accentColor);
+  const colors = STOCK_COLORS;
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
@@ -256,9 +265,9 @@ export function BufferSymbol({ el, selected, onEdit, accentColor }: SymProps) {
 }
 
 // ── Supermercado ──────────────────────────────────────────────────────────────
-export function SupermarketSymbol({ el, selected, onEdit, accentColor }: SymProps) {
+export function SupermarketSymbol({ el, selected, onEdit }: SymProps) {
   const w = 80; const h = 70;
-  const colors = theme(accentColor);
+  const colors = STOCK_COLORS;
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
@@ -275,15 +284,16 @@ export function SupermarketSymbol({ el, selected, onEdit, accentColor }: SymProp
 }
 
 // ── FIFO ──────────────────────────────────────────────────────────────────────
-export function FifoSymbol({ selected, onEdit, accentColor }: SymProps) {
+export function FifoSymbol({ el, selected, onEdit }: SymProps) {
   const w = 100; const h = 50;
-  const colors = theme(accentColor);
+  const colors = STOCK_COLORS;
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
       <rect x={1} y={10} width={w-2} height={26} rx={6} fill={colors.pale} stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
       <text x={w/2-8} y={27} textAnchor="middle" fontSize={9} fontWeight="800" fontFamily="Arial" fill={colors.darker}>FIFO</text>
       <polygon points={`${w-18},10 ${w-2},23 ${w-18},36`} fill={colors.accent} />
+      {Number(el.data.qty) > 0 && <text x={w/2} y={46} textAnchor="middle" fontSize={6.5} fontWeight="700" fontFamily="Arial" fill={colors.darker}>limite {el.data.qty} un</text>}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
@@ -799,8 +809,8 @@ export function ExtendedSymbol(props: SymProps) {
 
   if (el.kind === 'safety-stock') {
     const w=76,h=64;
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points="22,7 40,40 4,40" fill={colors.light} stroke={stroke} strokeWidth={strokeWidth}/><polygon points="54,7 72,40 36,40" fill={colors.mid} stroke={stroke} strokeWidth={strokeWidth}/>
-      <text x={38} y={35} textAnchor="middle" fontSize={9} fontWeight="800" fontFamily="Arial" fill={colors.darker}>SS</text><text x={38} y={55} textAnchor="middle" fontSize={7} fontFamily="Arial" fill="#4d5663">{el.data.qty ?? 0} un</text>{edit(w-2)}</g>;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points="22,7 40,40 4,40" fill={STOCK_COLORS.light} stroke={sel(selected,STOCK_COLORS.dark)} strokeWidth={strokeWidth}/><polygon points="54,7 72,40 36,40" fill={STOCK_COLORS.mid} stroke={sel(selected,STOCK_COLORS.dark)} strokeWidth={strokeWidth}/>
+      <text x={38} y={35} textAnchor="middle" fontSize={9} fontWeight="800" fontFamily="Arial" fill={STOCK_COLORS.darker}>SS</text><text x={38} y={55} textAnchor="middle" fontSize={7} fontFamily="Arial" fill="#4d5663">{el.data.qty ?? 0} un</text>{edit(w-2)}</g>;
   }
 
   if (['transport-air','transport-ship','forklift','milk-run'].includes(el.kind)) {
