@@ -111,15 +111,15 @@ export const ARROW_KINDS: ElementKind[] = [
 
 export const LIBRARY: LibraryItem[] = [
   // ── Material
-  { kind: 'supplier',          label: 'Fornecedor',         group: 'material',   defaultLabel: 'Fornecedor',          defaultData: { freq: 1 },                                      w: 120, h: 80  },
-  { kind: 'customer',          label: 'Cliente',            group: 'material',   defaultLabel: 'Cliente',             defaultData: { freq: 1 },                                      w: 120, h: 80  },
-  { kind: 'raw-material',      label: 'Matéria-prima',      group: 'material',   defaultLabel: 'Matéria-prima',       defaultData: { qty: 0 },                                       w: 110, h: 72  },
-  { kind: 'finished-goods',    label: 'Produto acabado',    group: 'material',   defaultLabel: 'Produto acabado',     defaultData: { qty: 0 },                                       w: 110, h: 72  },
-  { kind: 'warehouse',         label: 'Armazém',            group: 'material',   defaultLabel: 'Armazém',             defaultData: { qty: 0 },                                       w: 120, h: 82  },
-  { kind: 'shipping-point',    label: 'Expedição',          group: 'material',   defaultLabel: 'Expedição',           defaultData: {},                                               w: 100, h: 70  },
+  { kind: 'supplier',          label: 'Fornecedor',         group: 'material',   defaultLabel: 'Fornecedor',          defaultData: { freq: 1 },                                      w: 170, h: 120 },
+  { kind: 'customer',          label: 'Cliente final',      group: 'material',   defaultLabel: 'Cliente final',       defaultData: { freq: 1 },                                      w: 170, h: 120 },
+  { kind: 'raw-material',      label: 'Matéria-prima',      group: 'material',   defaultLabel: 'Matéria-prima',       defaultData: { qty: 0 },                                       w: 130, h: 110 },
+  { kind: 'finished-goods',    label: 'Produto acabado',    group: 'material',   defaultLabel: 'Produto acabado',     defaultData: { qty: 0 },                                       w: 130, h: 110 },
+  { kind: 'warehouse',         label: 'Armazém',            group: 'material',   defaultLabel: 'Armazém',             defaultData: { qty: 0 },                                       w: 180, h: 120 },
+  { kind: 'shipping-point',    label: 'Expedição',          group: 'material',   defaultLabel: 'Expedição',           defaultData: {},                                               w: 150, h: 110 },
   { kind: 'process',           label: 'Processo',           group: 'material',   defaultLabel: 'Processo',            defaultData: { tc: 0, setup: 0, lote: 1, op: 1, recurso: 1, disp: 100, qualidade: 100 }, w: 150, h: 160 },
   { kind: 'shared-process',    label: 'Processo compartilhado', group: 'material', defaultLabel: 'Processo compartilhado', defaultData: { tc: 0, setup: 0, lote: 1, op: 1, recurso: 1, disp: 100, qualidade: 100 }, w: 170, h: 160 },
-  { kind: 'machine',           label: 'Máquina / equipamento', group: 'material', defaultLabel: 'Máquina',            defaultData: { recurso: 1, disp: 100 },                         w: 120, h: 82  },
+  { kind: 'machine',           label: 'Máquina / equipamento', group: 'material', defaultLabel: 'Máquina',            defaultData: { recurso: 1, disp: 100 },                         w: 150, h: 120 },
   { kind: 'inspection',        label: 'Inspeção / qualidade', group: 'material', defaultLabel: 'Inspeção',            defaultData: { tc: 0, op: 1 },                                 w: 100, h: 86  },
   { kind: 'work-cell',         label: 'Célula de trabalho', group: 'material',   defaultLabel: 'Célula',              defaultData: { op: 1 },                                        w: 160, h: 100 },
   { kind: 'inventory',         label: 'Estoque',            group: 'material',   defaultLabel: 'Estoque',             defaultData: { qty: 0 },                                       w: 60,  h: 60  },

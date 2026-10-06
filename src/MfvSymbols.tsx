@@ -3,6 +3,13 @@ import truckThreeQuarter from './assets/truck-three-quarter.png';
 import cargoAirplaneThreeQuarter from './assets/cargo-airplane-three-quarter.png';
 import cargoShipThreeQuarter from './assets/cargo-ship-three-quarter.png';
 import forkliftThreeQuarter from './assets/forklift-three-quarter.png';
+import supplierFactoryThreeQuarter from './assets/supplier-factory-three-quarter.png';
+import finalCustomerThreeQuarter from './assets/final-customer-three-quarter.png';
+import rawMaterialThreeQuarter from './assets/raw-material-three-quarter.png';
+import finishedGoodsThreeQuarter from './assets/finished-goods-three-quarter.png';
+import warehouseThreeQuarter from './assets/warehouse-three-quarter.png';
+import shippingDockThreeQuarter from './assets/shipping-dock-three-quarter.png';
+import cncMachineThreeQuarter from './assets/cnc-machine-three-quarter.png';
 
 interface SymProps {
   el: CanvasElement;
@@ -134,24 +141,16 @@ export function WorkCellSymbol({ el, selected, onEdit, accentColor }: SymProps) 
 }
 
 // ── Fornecedor / Cliente ──────────────────────────────────────────────────────
-export function PartySymbol({ el, selected, onEdit, accentColor }: SymProps) {
-  const w = 120; const h = 80;
-  const colors = theme(accentColor);
+export function PartySymbol({ el, selected, onEdit }: SymProps) {
+  const w = 170; const h = 120;
   const isC = el.kind === 'customer';
-  const label = el.label || (isC ? 'Cliente' : 'Fornecedor');
+  const label = el.label || (isC ? 'Cliente final' : 'Fornecedor');
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <rect width={w} height={h} rx={7} fill={colors.pale} stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
-      <rect x={7} y={8} width={37} height={39} rx={5} fill={colors.accent} />
-      {isC ? <>
-        <path d="M14 29 L25 17 L37 29 V41 H14 Z" fill="white" opacity={0.96}/><rect x={22} y={31} width={7} height={10} rx={1} fill={colors.mid}/>
-      </> : <>
-        <path d="M12 39 V22 L21 16 V23 L29 16 V23 L38 18 V39 Z" fill="white" opacity={0.96}/><rect x={16} y={30} width={5} height={5} fill={colors.mid}/><rect x={25} y={30} width={5} height={5} fill={colors.mid}/>
-      </>}
-      <text x={80} y={25} textAnchor="middle" fontSize={9} fontWeight="800" fontFamily="Arial" fill={colors.darker}>{label.split('\n')[0]}</text>
-      {label.split('\n')[1] && <text x={80} y={37} textAnchor="middle" fontSize={7.5} fontFamily="Arial" fill={colors.dark}>{label.split('\n')[1]}</text>}
-      {el.data.freq && <text x={w/2} y={h-8} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill={colors.dark}>a cada {el.data.freq} dia(s)</text>}
+      <image href={isC ? finalCustomerThreeQuarter : supplierFactoryThreeQuarter} x={4} y={2} width={w-8} height={92} preserveAspectRatio="xMidYMid meet" />
+      <text x={w/2} y={103} textAnchor="middle" fontSize={8} fontWeight="800" fontFamily="Arial" fill="#34383e">{label}</text>
+      {el.data.freq && <text x={w/2} y={115} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#6b7178">a cada {el.data.freq} dia(s)</text>}
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
@@ -181,17 +180,13 @@ export function TruckSymbol({ el, selected, onEdit }: SymProps) {
 }
 
 // ── Ponto de expedição ────────────────────────────────────────────────────────
-export function ShippingPointSymbol({ el, selected, onEdit, accentColor }: SymProps) {
-  const w = 100; const h = 70;
-  const colors = theme(accentColor);
+export function ShippingPointSymbol({ el, selected, onEdit }: SymProps) {
+  const w = 150; const h = 110;
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <rect width={w} height={h} rx={7} fill={colors.pale} stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
-      <path d="M31 17 L50 8 L69 17 L50 27 Z" fill={colors.mid} stroke={colors.dark} strokeWidth={1.2}/>
-      <path d="M31 17 V38 L50 48 L69 38 V17 M50 27 V48" fill="none" stroke={colors.dark} strokeWidth={1.5}/>
-      <path d="M56 12 L62 15 L43 24 L37 21 Z" fill="white" opacity={0.75}/>
-      <text x={w/2} y={h-8} textAnchor="middle" fontSize={8} fontWeight="700" fontFamily="Arial" fill={colors.darker}>{el.label || 'Expedição'}</text>
+      <image href={shippingDockThreeQuarter} x={4} y={2} width={w-8} height={88} preserveAspectRatio="xMidYMid meet" />
+      <text x={w/2} y={103} textAnchor="middle" fontSize={8} fontWeight="800" fontFamily="Arial" fill="#34383e">{el.label || 'Expedição'}</text>
       <EditBtn onEdit={onEdit} x={w-2} y={2} />
     </g>
   );
@@ -694,31 +689,22 @@ export function ExtendedSymbol(props: SymProps) {
   }
 
   if (el.kind === 'raw-material' || el.kind === 'finished-goods' || el.kind === 'warehouse') {
-    const w = el.kind === 'warehouse' ? 120 : 110; const h = el.kind === 'warehouse' ? 82 : 72;
-    const fill = el.kind === 'raw-material' ? colors.light : el.kind === 'finished-goods' ? colors.mid : colors.pale;
+    const isWarehouse = el.kind === 'warehouse';
+    const w = isWarehouse ? 180 : 130; const h = isWarehouse ? 120 : 110;
+    const image = el.kind === 'raw-material' ? rawMaterialThreeQuarter : el.kind === 'finished-goods' ? finishedGoodsThreeQuarter : warehouseThreeQuarter;
     return <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <rect width={w} height={h} rx={3} fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
-      {el.kind === 'warehouse' ? <>
-        <path d={`M12,30 L${w/2},8 L${w-12},30`} fill="none" stroke={stroke} strokeWidth={2} />
-        <rect x={18} y={30} width={w-36} height={27} fill="white" stroke={stroke} strokeWidth={1.4} />
-        {[0,1,2].map((i)=><line key={i} x1={30+i*24} y1={31} x2={30+i*24} y2={57} stroke="#9ba7b7" />)}
-      </> : <>
-        <path d={`M${w/2-18},12 l18,-8 18,8 -18,8 z`} fill={colors.mid} stroke={stroke} />
-        <path d={`M${w/2-18},12 v20 l18,9 18,-9 v-20`} fill="none" stroke={stroke} strokeWidth={1.4} />
-        <line x1={w/2} y1={20} x2={w/2} y2={41} stroke={stroke} />
-      </>}
-      {label(w/2,h-8)}
-      {Number(el.data.qty ?? 0) > 0 && <text x={w-7} y={13} textAnchor="end" fontSize={7} fontFamily="Arial" fill="#526074">{el.data.qty} un</text>}
+      <image href={image} x={4} y={2} width={w-8} height={h-25} preserveAspectRatio="xMidYMid meet" />
+      {label(w/2,h-11)}
+      {Number(el.data.qty ?? 0) > 0 && <text x={w/2} y={h-2} textAnchor="middle" fontSize={6.5} fontFamily="Arial" fill="#6b7178">{el.data.qty} un</text>}
       {edit(w-2)}
     </g>;
   }
 
   if (el.kind === 'machine') {
-    const w=120,h=82;
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect width={w} height={h} rx={7} fill={colors.pale} stroke={stroke} strokeWidth={strokeWidth}/>
-      <rect x={15} y={17} width={90} height={34} rx={5} fill="white" stroke={stroke}/><circle cx={45} cy={34} r={11} fill={colors.light} stroke={stroke}/><circle cx={45} cy={34} r={4} fill={colors.dark}/>
-      <rect x={68} y={25} width={23} height={18} rx={3} fill={colors.mid} stroke={stroke}/>{label(w/2,70)}{edit(w-2)}</g>;
+    const w=150,h=120;
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<image href={cncMachineThreeQuarter} x={4} y={2} width={w-8} height={94} preserveAspectRatio="xMidYMid meet"/>
+      {label(w/2,110)}{edit(w-2)}</g>;
   }
 
   if (el.kind === 'inspection') {
@@ -757,7 +743,6 @@ export function ExtendedSymbol(props: SymProps) {
   if (['transport-air','transport-ship','forklift','milk-run'].includes(el.kind)) {
     const w=el.kind==='milk-run'?120:el.kind==='forklift'?140:180; const h=el.kind==='milk-run'?64:el.kind==='forklift'?115:105;
     return <g>{selected && <SelectionRect w={w} h={h}/>}
-      {el.kind==='milk-run' && <rect width={w} height={h} rx={8} fill={colors.pale} stroke={stroke} strokeWidth={strokeWidth}/>}
       {el.kind==='transport-air' && <image href={cargoAirplaneThreeQuarter} x={5} y={5} width={w-10} height={h-24} preserveAspectRatio="xMidYMid meet"/>}
       {el.kind==='transport-ship' && <image href={cargoShipThreeQuarter} x={5} y={5} width={w-10} height={h-24} preserveAspectRatio="xMidYMid meet"/>}
       {el.kind==='forklift' && <image href={forkliftThreeQuarter} x={5} y={3} width={w-10} height={h-22} preserveAspectRatio="xMidYMid meet"/>}

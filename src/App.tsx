@@ -230,6 +230,9 @@ function normalizeCanvas(raw: Partial<CanvasState> | undefined, legacy?: Partial
         .map((element) => element.kind === 'resource-zone' && element.label === 'RECURSOS DA CÉLULA / MANUTENÇÃO'
           ? { ...element, label: 'ÁREA DE INTERVENÇÃO' }
           : element)
+        .map((element) => element.kind === 'customer' && element.label === 'Cliente'
+          ? { ...element, label: 'Cliente final' }
+          : element)
         .map((element) => {
           if (element.kind !== 'truck') return element;
           const truckColor = String(element.data.color ?? '');
