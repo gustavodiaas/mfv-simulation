@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Activity, AlertTriangle, BarChart3, BookOpen, Calculator, CheckCircle2, Copy, Download, FileImage, FileText, GitCompareArrows,
   ImageDown, LayoutTemplate, Loader2, Map, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Plus,
-  Pause, Play, RotateCcw, Route, Save, Sparkles, Square, Trash2, X, ZoomIn, ZoomOut, Minus,
+  Pause, Play, RotateCcw, Route, Search, Sparkles, Square, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
 import {
   ARROW_KINDS, DEFAULT_TRUCK_COLOR, LIBRARY, makeId,
@@ -1326,33 +1326,31 @@ const GROUP_LABELS: Record<string, string> = {
 };
 
 function LibraryPanel({ onDragStart, accentColor }: { onDragStart: (item: LibraryItem, e: React.DragEvent) => void; accentColor: string }) {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [activeGroup, setActiveGroup] = useState('material');
+  const [query, setQuery] = useState('');
   const groups = ['material','logistica','kanban','informacao','operador','fluxo','anotacao'];
+  const normalizedQuery = query.trim().toLocaleLowerCase('pt-BR');
+  const visibleItems = LIBRARY.filter((item) => !['planning','timeline'].includes(item.kind))
+    .filter((item) => normalizedQuery
+      ? `${item.label} ${item.defaultLabel} ${GROUP_LABELS[item.group]}`.toLocaleLowerCase('pt-BR').includes(normalizedQuery)
+      : item.group === activeGroup);
   return (
     <div className="library-panel">
-      {groups.map((g) => {
-        const items = LIBRARY.filter((i) => i.group === g && !['planning','timeline'].includes(i.kind));
-        const open = !collapsed[g];
-        return (
-          <div key={g} className="library-group">
-            <button className="library-group-label" onClick={() => setCollapsed(p => ({ ...p, [g]: open }))}>
-              <span>{GROUP_LABELS[g]}</span>
-              <span style={{ fontSize: 8, color: '#aeaeb2' }}>{open ? '▲' : '▼'}</span>
-            </button>
-            {open && (
-              <div className="library-items">
-                {items.map((item) => (
-                  <div key={item.kind} className="library-item" draggable
-                    onDragStart={(e) => onDragStart(item, e)} title={item.label}>
-                    <LibraryThumb kind={item.kind} accentColor={accentColor} />
-                    <span>{item.label}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+      <div className="library-heading"><div><strong>Biblioteca</strong><span>Arraste para o mapa</span></div><b>{visibleItems.length}</b></div>
+      <label className="library-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar símbolo" aria-label="Buscar símbolo" />{query && <button onClick={() => setQuery('')} aria-label="Limpar busca"><X size={12}/></button>}</label>
+      {!normalizedQuery && <div className="library-tabs">
+        {groups.map((group) => <button key={group} className={activeGroup === group ? 'active' : ''} onClick={() => setActiveGroup(group)}>{GROUP_LABELS[group]}<small>{LIBRARY.filter((item) => item.group === group && !['planning','timeline'].includes(item.kind)).length}</small></button>)}
+      </div>}
+      {normalizedQuery && <div className="library-search-result"><span>Resultados para “{query.trim()}”</span></div>}
+      <div className="library-items">
+        {visibleItems.map((item) => (
+          <div key={item.kind} className="library-item" draggable onDragStart={(event) => onDragStart(item, event)} title={`Arraste: ${item.label}`}>
+            <div className="library-item-visual"><LibraryThumb kind={item.kind} accentColor={accentColor} /></div>
+            <span>{item.label}</span>
           </div>
-        );
-      })}
+        ))}
+        {!visibleItems.length && <div className="library-empty"><Search size={20}/><strong>Nenhum símbolo</strong><span>Tente buscar por outro nome.</span></div>}
+      </div>
     </div>
   );
 }
@@ -2923,32 +2921,32 @@ export default function App() {
       <aside className="app-sidebar no-print">
         <div className="sidebar-brand">
           <div className="app-symbol"><Route size={20} /></div>
-          <div className="sidebar-brand-text"><strong>MFV</strong><span>Simulador</span></div>
-          <button className="collapse-button" onClick={() => setSidebarCollapsed(v => !v)}>
+          <div className="sidebar-brand-text"><strong>MFV Simulador</strong><span>Fluxo de valor inteligente</span></div>
+          <button className="collapse-button" onClick={() => setSidebarCollapsed(v => !v)} title={sidebarCollapsed ? 'Expandir barra lateral' : 'Recolher barra lateral'}>
             {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
         </div>
 
-        <div className="sidebar-section-label"><span>Cenário</span></div>
+        <div className="sidebar-section-label"><span>Mapa e cenário</span></div>
         <nav className="sidebar-nav">
           <button className={activeKind==='current'?'active current':''} onClick={() => setActiveKind('current')} title="Estado atual">
-            <Map size={18} /><span>Estado atual</span>
+            <Map size={18} /><span className="sidebar-nav-copy"><strong>Estado atual</strong><small>Base observada</small></span>
           </button>
           <button className={activeKind==='future'?'active future':''} onClick={() => setActiveKind('future')} title="Estado futuro">
-            <GitCompareArrows size={18} /><span>Estado futuro <small>{workspace.futures.length}</small></span>
+            <GitCompareArrows size={18} /><span className="sidebar-nav-copy"><strong>Estado futuro</strong><small>{workspace.futures.length} cenário(s)</small></span>
           </button>
           <button className="demand-nav-button" onClick={() => setDemandOpen(true)} title="Dados de demanda e TAKT">
-            <Calculator size={18} /><span>Demanda e TAKT</span>
+            <Calculator size={18} /><span className="sidebar-nav-copy"><strong>Demanda e TAKT</strong><small>Premissas da simulação</small></span>
           </button>
         </nav>
 
         {!sidebarCollapsed && <LibraryPanel onDragStart={onLibDragStart} accentColor={DEFAULT_THEME_COLOR} />}
 
         <div className="sidebar-bottom">
-          <div className="save-state"><Save size={14} /><span>{saved ? 'Salvo' : 'Salvando…'}</span></div>
+          <div className="sidebar-bottom-heading"><span>Projeto</span><div className="save-state"><i/><span>{saved ? 'Salvo' : 'Salvando…'}</span></div></div>
           <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
-          <button onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Exportar</span></button>
-          <button onClick={() => { if (window.confirm('Limpar os elementos do canvas? As caixas de identificação e demanda serão mantidas.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] })); setSelectedId(null); } }}>
+          <button className="sidebar-export-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Imprimir e exportar</span></button>
+          <button className="sidebar-clear-button" onClick={() => { if (window.confirm('Limpar os elementos do canvas? As caixas de identificação e demanda serão mantidas.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] })); setSelectedId(null); } }}>
             <RotateCcw size={17} /><span>Limpar</span>
           </button>
         </div>
@@ -2957,7 +2955,7 @@ export default function App() {
       {/* Main */}
       <main className="app-main" style={{ display:'flex', flexDirection:'column' }}>
         <header className="app-header">
-          <div>
+          <div className="header-heading">
             <ScenarioPill kind={activeKind} />
             <h1>{activeKind==='current'?'Estado atual':activeFuture.name}</h1>
             <p>{activeKind === 'current'
@@ -2966,6 +2964,17 @@ export default function App() {
             </p>
           </div>
           <div className="header-actions">
+            {activeKind === 'future' && <button className="future-sync-status" onClick={() => setComparisonOpen(true)} title="Comparar todos os cenários com o Estado atual">
+              <BarChart3 size={15}/><span>Comparar</span>
+            </button>}
+            <button className={`live-launch-button ${liveRunning ? 'running' : ''}`} onClick={toggleLiveSimulation} title="Executar o fluxo produtivo no canvas">
+              {liveRunning ? <Pause size={16}/> : <Activity size={16}/>}<span>{liveRunning ? 'Pausar' : liveElapsedSec > 0 ? 'Continuar' : 'Simular fluxo'}</span>
+            </button>
+            <button className="primary-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}>
+              <Download size={17}/>Exportar
+            </button>
+          </div>
+          <div className="header-metrics-row">
             <div className="simulation-summary">
               <div><span>Demanda diária</span><strong>{simulation.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un</strong></div>
               <div><span>TAKT</span><strong>{(simulation.taktTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} min</strong></div>
@@ -2983,26 +2992,19 @@ export default function App() {
                     : simulation.processElements.length ? 'Processos atendem' : 'Adicione processos'}</span>
               </div>
             </div>
-            {activeKind === 'future' && <button className="future-sync-status" onClick={() => setComparisonOpen(true)} title="Comparar todos os cenários com o Estado atual">
-              <BarChart3 size={15}/><span>Comparar</span>
-            </button>}
-            <button className={`live-launch-button ${liveRunning ? 'running' : ''}`} onClick={toggleLiveSimulation} title="Executar o fluxo produtivo no canvas">
-              {liveRunning ? <Pause size={16}/> : <Activity size={16}/>}<span>{liveRunning ? 'Pausar' : liveElapsedSec > 0 ? 'Continuar' : 'Simular fluxo'}</span>
-            </button>
-            <label className="theme-color-button" title="Personalizar a cor de todo o MFV">
-              <Palette size={16}/><span>Cor do MFV</span>
-              <input type="color" value={canvas.themeColor} onChange={(event) => applyThemeColor(event.target.value)} aria-label="Cor do MFV" />
-              <i style={{ backgroundColor: canvas.themeColor }} />
-            </label>
-            <div className="zoom-controls">
-              <button onClick={() => setZoom(z => Math.max(0.15, z*.85))}><ZoomOut size={15}/></button>
-              <span>{Math.round(zoom*100)}%</span>
-              <button onClick={() => setZoom(z => Math.min(4, z*1.15))}><ZoomIn size={15}/></button>
-              <button onClick={() => { setZoom(1); setPan({x:80,y:80}); }} title="Reset"><Minus size={13}/></button>
+            <div className="header-canvas-tools">
+              <label className="theme-color-button" title="Personalizar a cor de todo o MFV">
+                <Palette size={16}/><span>Cor do MFV</span>
+                <input type="color" value={canvas.themeColor} onChange={(event) => applyThemeColor(event.target.value)} aria-label="Cor do MFV" />
+                <i style={{ backgroundColor: canvas.themeColor }} />
+              </label>
+              <div className="zoom-controls">
+                <button onClick={() => setZoom(z => Math.max(0.15, z*.85))} title="Diminuir zoom"><ZoomOut size={15}/></button>
+                <span>{Math.round(zoom*100)}%</span>
+                <button onClick={() => setZoom(z => Math.min(4, z*1.15))} title="Aumentar zoom"><ZoomIn size={15}/></button>
+                <button onClick={() => { setZoom(1); setPan({x:80,y:80}); }} title="Restaurar visualização"><Minus size={13}/></button>
+              </div>
             </div>
-            <button className="primary-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}>
-              <Download size={17}/>Exportar
-            </button>
           </div>
         </header>
 
