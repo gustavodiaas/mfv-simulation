@@ -84,9 +84,13 @@ function TintedAssetImage({ el, href, x, y, width, height }: {
   return <>
     <defs>
       <filter id={filterId} x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
-        <feFlood floodColor={color} floodOpacity={0.72} result="tint" />
-        <feComposite in="tint" in2="SourceGraphic" operator="in" result="tintedShape" />
-        <feBlend in="SourceGraphic" in2="tintedShape" mode="multiply" />
+        <feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="surfaceLuminance" />
+        <feComponentTransfer in="surfaceLuminance" result="paintableSurface">
+          <feFuncA type="table" tableValues="0 0 0 0 0 0.08 0.32 0.7 1 1 1" />
+        </feComponentTransfer>
+        <feFlood floodColor={color} floodOpacity={0.78} result="paintColor" />
+        <feComposite in="paintColor" in2="paintableSurface" operator="in" result="paintedSurface" />
+        <feBlend in="SourceGraphic" in2="paintedSurface" mode="multiply" />
       </filter>
     </defs>
     <image href={href} x={x} y={y} width={width} height={height} preserveAspectRatio="xMidYMid meet" filter={`url(#${filterId})`} />
@@ -275,14 +279,13 @@ export function FifoSymbol({ selected, onEdit, accentColor }: SymProps) {
 }
 
 // ── Kanban de produção (cartão laranja) ───────────────────────────────────────
-export function KanbanProductionSymbol({ el, selected, onEdit, accentColor }: SymProps) {
+export function KanbanProductionSymbol({ el, selected, onEdit }: SymProps) {
   const w = 60; const h = 44;
-  const colors = theme(accentColor);
   const card = { accent: '#f59e0b', dark: '#9a4c07', pale: '#fff7df' };
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <rect width={w} height={h} rx={5} fill="white" stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
+      <rect width={w} height={h} rx={5} fill="white" stroke={sel(selected,card.dark)} strokeWidth={selW(selected)} />
       <rect x={1} y={1} width={w-2} height={12} rx={4} fill={card.accent} />
       <path d={`M${w-10},1 H${w-1} V10 Z`} fill="#ffd98a" />
       <rect x={5} y={18} width={4} height={16} rx={2} fill={card.accent} />
@@ -298,14 +301,13 @@ export function KanbanProductionSymbol({ el, selected, onEdit, accentColor }: Sy
 }
 
 // ── Kanban de retirada (cartão verde) ─────────────────────────────────────────
-export function KanbanWithdrawalSymbol({ el, selected, onEdit, accentColor }: SymProps) {
+export function KanbanWithdrawalSymbol({ el, selected, onEdit }: SymProps) {
   const w = 60; const h = 44;
-  const colors = theme(accentColor);
   const card = { accent: '#22a06b', dark: '#146344', pale: '#e5f7ef' };
   return (
     <g>
       {selected && <SelectionRect w={w} h={h} />}
-      <rect width={w} height={h} rx={5} fill="white" stroke={sel(selected,colors.dark)} strokeWidth={selW(selected)} />
+      <rect width={w} height={h} rx={5} fill="white" stroke={sel(selected,card.dark)} strokeWidth={selW(selected)} />
       <rect x={1} y={1} width={w-2} height={12} rx={4} fill={card.accent} />
       <path d={`M${w-10},1 H${w-1} V10 Z`} fill="#91dfbd" />
       <rect x={5} y={18} width={4} height={16} rx={2} fill={card.accent} />
@@ -321,9 +323,9 @@ export function KanbanWithdrawalSymbol({ el, selected, onEdit, accentColor }: Sy
 }
 
 // ── Quadro Kanban ─────────────────────────────────────────────────────────────
-export function KanbanBoardSymbol({ el, selected, onEdit, accentColor }: SymProps) {
+export function KanbanBoardSymbol({ el, selected, onEdit }: SymProps) {
   const w = 120; const h = 100;
-  const colors = theme(accentColor);
+  const colors = theme('#2c5fa8');
   const cols = Math.min(6, Math.max(1, Number(el.data.cols) || 3));
   const rows = Math.min(5, Math.max(1, Number(el.data.rows) || 3));
   const gap = 3; const inset = 5; const boardTop = 22; const columnHeaderHeight = 11;
@@ -365,9 +367,9 @@ export function KanbanBoardSymbol({ el, selected, onEdit, accentColor }: SymProp
 }
 
 // ── Heijunka box ──────────────────────────────────────────────────────────────
-export function HeijunkaSymbol({ el, selected, onEdit, accentColor }: SymProps) {
+export function HeijunkaSymbol({ el, selected, onEdit }: SymProps) {
   const w = 140; const h = 80;
-  const colors = theme(accentColor);
+  const colors = theme('#2c5fa8');
   const cols = Math.max(1, Number(el.data.cols) || 5);
   const rows = Math.max(1, Number(el.data.rows) || 2);
   const cw = (w - 10) / cols; const rh = (h - 22) / rows;
@@ -388,9 +390,9 @@ export function HeijunkaSymbol({ el, selected, onEdit, accentColor }: SymProps) 
 }
 
 // ── Caixa de sequenciamento ───────────────────────────────────────────────────
-export function SequencingBoxSymbol({ el, selected, onEdit, accentColor }: SymProps) {
+export function SequencingBoxSymbol({ el, selected, onEdit }: SymProps) {
   const w = 120; const h = 60;
-  const colors = theme(accentColor);
+  const colors = theme('#2c5fa8');
   const slots = Math.max(1, Number(el.data.slots) || 6);
   const sw = (w - 10) / slots;
   return (
@@ -801,17 +803,21 @@ export function ExtendedSymbol(props: SymProps) {
 
   if (el.kind === 'signal-kanban') {
     const w=64,h=56;
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points={`${w/2},4 ${w-5},${h-8} 5,${h-8}`} fill={colors.mid} stroke={stroke} strokeWidth={strokeWidth}/><text x={w/2} y={34} textAnchor="middle" fontSize={9} fontWeight="800" fontFamily="Arial" fill={colors.darker}>K</text>{edit(w-2)}</g>;
+    const kanbanColors = theme('#2c5fa8');
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<polygon points={`${w/2},4 ${w-5},${h-8} 5,${h-8}`} fill="#f2b84b" stroke={sel(selected,'#9a6508')} strokeWidth={strokeWidth}/><text x={w/2} y={34} textAnchor="middle" fontSize={9} fontWeight="800" fontFamily="Arial" fill={kanbanColors.darker}>K</text>{edit(w-2)}</g>;
   }
 
   if (el.kind === 'kanban-post') {
     const w=88,h=72;
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={18} y={8} width={52} height={48} rx={6} fill={colors.pale} stroke={stroke} strokeWidth={strokeWidth}/><line x1={27} y1={20} x2={61} y2={20} stroke={colors.accent}/><line x1={27} y1={31} x2={61} y2={31} stroke={colors.accent}/><line x1={27} y1={42} x2={61} y2={42} stroke={colors.accent}/>{label(w/2,68)}{edit(w-2)}</g>;
+    const kanbanColors = theme('#2c5fa8');
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<rect x={18} y={8} width={52} height={48} rx={6} fill={kanbanColors.pale} stroke={sel(selected,kanbanColors.dark)} strokeWidth={strokeWidth}/><line x1={27} y1={20} x2={61} y2={20} stroke="#f2b84b" strokeWidth={3}/><line x1={27} y1={31} x2={61} y2={31} stroke="#4fbd8a" strokeWidth={3}/><line x1={27} y1={42} x2={61} y2={42} stroke="#72a7f2" strokeWidth={3}/>{label(w/2,68,el.label,kanbanColors.darker)}{edit(w-2)}</g>;
   }
 
   if (el.kind === 'sequenced-pull') {
     const w=150,h=62;
-    return <g>{selected && <SelectionRect w={w} h={h}/>}<path d="M8,31 H134" stroke={colors.accent} strokeWidth={2.5}/><polygon points="134,24 146,31 134,38" fill={colors.accent}/>{[20,48,76,104].map((x,i)=><rect key={i} x={x} y={16} width={15} height={22} rx={3} fill={i%2?colors.mid:colors.light} stroke={colors.dark}/>)}{label(w/2,55)}{edit(w-2)}</g>;
+    const kanbanColors = theme('#2c5fa8');
+    const pullCards = ['#72a7f2','#f2b84b','#4fbd8a','#a987dc'];
+    return <g>{selected && <SelectionRect w={w} h={h}/>}<path d="M8,31 H134" stroke={kanbanColors.accent} strokeWidth={2.5}/><polygon points="134,24 146,31 134,38" fill={kanbanColors.accent}/>{[20,48,76,104].map((x,i)=><rect key={i} x={x} y={16} width={15} height={22} rx={3} fill={pullCards[i]} stroke={kanbanColors.dark}/>)}{label(w/2,55,el.label,kanbanColors.darker)}{edit(w-2)}</g>;
   }
 
   if (el.kind === 'erp-system' || el.kind === 'go-see') {
