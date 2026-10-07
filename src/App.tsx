@@ -2128,6 +2128,10 @@ type Dragging =
   | { type: 'arrow-point'; id: string; point: 'start' | 'end' }
   | { type: 'pan'; startX: number; startY: number; origX: number; origY: number };
 
+type CanvasClipboard =
+  | { type: 'element'; element: CanvasElement }
+  | { type: 'arrow'; arrow: CanvasArrow };
+
 type AlignmentGuides = { x?: number; y?: number };
 
 const ARROW_CONNECT_DISTANCE = 18;
@@ -2578,9 +2582,12 @@ export default function App() {
   const [liveRunning, setLiveRunning] = useState(false);
   const [liveElapsedSec, setLiveElapsedSec] = useState(0);
   const [liveSpeed, setLiveSpeed] = useState(300);
+  const [clipboardNotice, setClipboardNotice] = useState('');
   const svgRef = useRef<SVGSVGElement>(null);
   const leanFloatingRef = useRef<HTMLDivElement>(null);
   const dragMovedRef = useRef(false);
+  const canvasClipboardRef = useRef<CanvasClipboard | null>(null);
+  const pasteCountRef = useRef(0);
   const liveFrameRef = useRef<number | null>(null);
   const liveLastTickRef = useRef<number | null>(null);
 
@@ -2913,6 +2920,93 @@ export default function App() {
     window.addEventListener('keydown', handleUndoShortcut);
     return () => window.removeEventListener('keydown', handleUndoShortcut);
   }, [undoLastChange]);
+
+  useEffect(() => {
+    if (!clipboardNotice) return;
+    const timeout = window.setTimeout(() => setClipboardNotice(''), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [clipboardNotice]);
+
+  useEffect(() => {
+    const handleClipboardShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key !== 'c' && key !== 'v') return;
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '') || target?.closest('.editor-window,.process-popover,.site-select-menu')) return;
+      if (window.getSelection()?.toString()) return;
+
+      if (key === 'c') {
+        if (!selectedId) return;
+        const element = canvas.elements.find((candidate) => candidate.id === selectedId);
+        if (element) {
+          if ([FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id) || ['pacemaker','timeline'].includes(element.kind)) {
+            setClipboardNotice(element.kind === 'pacemaker' ? 'O marcapasso é único e não pode ser duplicado.' : 'Este elemento é fixo e não pode ser duplicado.');
+            event.preventDefault();
+            return;
+          }
+          canvasClipboardRef.current = { type: 'element', element: { ...element, data: { ...element.data } } };
+          pasteCountRef.current = 0;
+          setClipboardNotice(`${element.label || 'Elemento'} copiado.`);
+          event.preventDefault();
+          return;
+        }
+        const arrow = canvas.arrows.find((candidate) => candidate.id === selectedId);
+        if (arrow) {
+          canvasClipboardRef.current = { type: 'arrow', arrow: { ...arrow, startAnchor: arrow.startAnchor ? { ...arrow.startAnchor } : undefined, endAnchor: arrow.endAnchor ? { ...arrow.endAnchor } : undefined } };
+          pasteCountRef.current = 0;
+          setClipboardNotice('Seta copiada.');
+          event.preventDefault();
+        }
+        return;
+      }
+
+      const clipboard = canvasClipboardRef.current;
+      if (!clipboard) return;
+      event.preventDefault();
+      pasteCountRef.current = (pasteCountRef.current % 6) + 1;
+      const offset = 20 + pasteCountRef.current * GRID_SIZE;
+
+      if (clipboard.type === 'element') {
+        const source = clipboard.element;
+        const id = makeId();
+        const processCopy = ['process','shared-process'].includes(source.kind);
+        const draft: CanvasElement = {
+          ...source,
+          id,
+          x: source.x + offset,
+          y: source.y + offset,
+          label: processCopy && !source.label.toLocaleLowerCase('pt-BR').includes('cópia') ? `${source.label || 'Processo'} — cópia` : source.label,
+          data: { ...source.data },
+        };
+        setCanvas((previous) => {
+          const snapped = snapElementPosition(draft, draft.x, draft.y, previous.elements);
+          return { ...previous, elements: [...previous.elements, { ...draft, x: snapped.x, y: snapped.y }] };
+        });
+        setSelectedId(id);
+        setClipboardNotice(processCopy ? 'Processo duplicado e incluído nos cálculos.' : `${source.label || 'Elemento'} duplicado.`);
+        return;
+      }
+
+      const source = clipboard.arrow;
+      const id = makeId();
+      const duplicate: CanvasArrow = {
+        ...source,
+        id,
+        x1: source.x1 + offset,
+        y1: source.y1 + offset,
+        x2: source.x2 + offset,
+        y2: source.y2 + offset,
+        startAnchor: undefined,
+        endAnchor: undefined,
+      };
+      setCanvas((previous) => ({ ...previous, arrows: [...previous.arrows, duplicate] }));
+      setSelectedId(id);
+      setClipboardNotice('Seta duplicada; conecte as extremidades desejadas.');
+    };
+    window.addEventListener('keydown', handleClipboardShortcut);
+    return () => window.removeEventListener('keydown', handleClipboardShortcut);
+  }, [canvas, selectedId, setCanvas]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -3390,9 +3484,10 @@ export default function App() {
           <div className="canvas-delete-hint">
             {[FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(selectedId)
               ? <>Caixa fixa do cenário · arraste para mover · duplo clique para editar</>
-              : <>Pressione <kbd>Delete</kbd> para remover · <kbd>Ctrl</kbd> + <kbd>Z</kbd> para desfazer · duplo clique para editar</>}
+              : <><kbd>Ctrl</kbd> + <kbd>C</kbd>/<kbd>V</kbd> copiar e colar · <kbd>Ctrl</kbd> + <kbd>Z</kbd> desfazer · <kbd>Delete</kbd> remover</>}
           </div>
         )}
+        {clipboardNotice && <div className="clipboard-toast"><Copy size={14}/><span>{clipboardNotice}</span></div>}
       </main>
 
       {editingEl && editingEl.kind === 'identification' && (
