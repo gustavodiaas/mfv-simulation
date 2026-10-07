@@ -3206,6 +3206,10 @@ export default function App() {
 
         {(liveRunning || liveElapsedSec > 0) && <div className="live-simulation-bar no-print">
           <div className="live-playback-controls">
+            <div className="live-panel-heading">
+              <span><Activity size={15}/></span>
+              <div><strong>Simulação ao vivo</strong><small>{liveRunning ? 'Fluxo produtivo em execução' : 'Simulação pausada'}</small></div>
+            </div>
             <button className="live-play-button" onClick={toggleLiveSimulation} aria-label={liveRunning ? 'Pausar simulação' : 'Continuar simulação'}>
               {liveRunning ? <Pause size={16}/> : <Play size={16}/>}
             </button>
