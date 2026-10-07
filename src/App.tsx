@@ -2563,7 +2563,7 @@ export default function App() {
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [projectToolsOpen, setProjectToolsOpen] = useState(false);
-  const [leanPanelOpen, setLeanPanelOpen] = useState(true);
+  const [leanPanelOpen, setLeanPanelOpen] = useState(false);
   const [saved, setSaved] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [demandOpen, setDemandOpen] = useState(false);
@@ -2579,9 +2579,24 @@ export default function App() {
   const [liveElapsedSec, setLiveElapsedSec] = useState(0);
   const [liveSpeed, setLiveSpeed] = useState(300);
   const svgRef = useRef<SVGSVGElement>(null);
+  const leanFloatingRef = useRef<HTMLDivElement>(null);
   const dragMovedRef = useRef(false);
   const liveFrameRef = useRef<number | null>(null);
   const liveLastTickRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!leanPanelOpen) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (leanFloatingRef.current && !leanFloatingRef.current.contains(event.target as Node)) setLeanPanelOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setLeanPanelOpen(false); };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [leanPanelOpen]);
 
   useEffect(() => {
     setSelectedId(null);
@@ -3131,36 +3146,6 @@ export default function App() {
             <LibraryPanel onDragStart={onLibDragStart} accentColor={DEFAULT_THEME_COLOR} />
           </div>
 
-          <section className={`sidebar-lean-panel ${simulation.leanWarnings.length ? 'warning' : 'ready'} ${leanPanelOpen ? 'open' : 'collapsed'}`}>
-            <button className="sidebar-panel-heading" onClick={() => setLeanPanelOpen((value) => !value)} aria-expanded={leanPanelOpen}>
-              <span className="sidebar-panel-title"><Route size={15}/><span><strong>Controle Lean</strong><small>{simulation.leanWarnings.length ? `${simulation.leanWarnings.length} ponto(s) de atenção` : 'Fluxo configurado'}</small></span></span>
-              <span className="sidebar-panel-status">{leanActionCount}<ChevronDown size={14}/></span>
-            </button>
-            {leanPanelOpen && <div className="sidebar-lean-content">
-              <div className="sidebar-lean-message" title={simulation.leanWarnings.join(' ')}>
-                {simulation.leanWarnings.length
-                  ? <><AlertTriangle size={14}/><span>{simulation.leanWarnings[0]}{simulation.leanWarnings.length > 1 ? ` +${simulation.leanWarnings.length - 1}` : ''}</span></>
-                  : <><CheckCircle2 size={14}/><span>Fluxo puxado configurado e limitado.</span></>}
-              </div>
-              <dl className="sidebar-lean-facts">
-                <div><dt>Marcapasso</dt><dd>{simulation.pacemaker?.label || 'Não definido'}</dd></div>
-                <div><dt>Pull</dt><dd>{simulation.pullSystemActive ? `Ativo · WIP ${simulation.pullWipLimit}` : 'Incompleto'}</dd></div>
-                <div><dt>Kanban</dt><dd>{simulation.kanbanCardTotal} cartão(ões) · {simulation.kanbanAuthorizedUnits} un</dd></div>
-                <div><dt>Heijunka</dt><dd>{simulation.heijunkaBoxes.length && simulation.pacemaker ? `Ativo · ${simulation.leveledSequence.length} slots` : 'Inativo'}</dd></div>
-                <div><dt>Pitch</dt><dd>{simulation.pitchTimeSec > 0 ? `${(simulation.pitchTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min` : '—'}</dd></div>
-                <div><dt>EPEI</dt><dd>{simulation.epeiDays === Infinity ? 'Sem capacidade' : simulation.epeiDays > 0 ? `${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dia(s)` : '—'}</dd></div>
-              </dl>
-              <div className="sidebar-lean-actions">
-                <button className="lean-assistant-button" onClick={() => setLeanAssistantOpen(true)}>
-                  <BookOpen size={14}/><span>Assistente Lean</span><b>{leanActionCount}</b>
-                </button>
-                {activeKind === 'future' && <button className="stress-test-button" onClick={() => setStressTestOpen(true)}>
-                  <Activity size={14}/><span>Teste de estresse</span>
-                </button>}
-              </div>
-            </div>}
-          </section>
-
           <div className="sidebar-bottom">
             <button className="sidebar-help-button" onClick={() => setManualOpen(true)} title="Abrir manual de uso"><BookOpen size={17} /><span>Manual de uso</span></button>
             <button className="sidebar-project-toggle" onClick={() => setProjectToolsOpen((value) => !value)} aria-expanded={projectToolsOpen}>
@@ -3254,6 +3239,36 @@ export default function App() {
             <button className="danger" onClick={deleteScenario} title="Excluir cenário"><Trash2 size={15}/><span>Excluir</span></button>
           </div>
         </div>}
+
+        <div ref={leanFloatingRef} className={`lean-floating-control no-print ${activeKind === 'future' ? 'future' : ''} ${(liveRunning || liveElapsedSec > 0) ? 'with-live' : ''} ${simulation.leanWarnings.length ? 'warning' : 'ready'}`}>
+          <button className="lean-floating-trigger" onClick={() => setLeanPanelOpen((value) => !value)} aria-expanded={leanPanelOpen}>
+            <Route size={15}/><span>Controle Lean</span>
+            <b>{leanActionCount}</b><ChevronDown size={14}/>
+          </button>
+          {leanPanelOpen && <div className="lean-floating-popover">
+            <header>
+              <div><strong>Controle Lean</strong><span>{simulation.leanWarnings.length ? `${simulation.leanWarnings.length} ponto(s) precisam de atenção` : 'Fluxo configurado'}</span></div>
+              <button onClick={() => setLeanPanelOpen(false)} aria-label="Fechar Controle Lean"><X size={15}/></button>
+            </header>
+            <div className="lean-floating-message" title={simulation.leanWarnings.join(' ')}>
+              {simulation.leanWarnings.length
+                ? <><AlertTriangle size={15}/><span>{simulation.leanWarnings[0]}{simulation.leanWarnings.length > 1 ? ` +${simulation.leanWarnings.length - 1}` : ''}</span></>
+                : <><CheckCircle2 size={15}/><span>Fluxo puxado configurado e limitado.</span></>}
+            </div>
+            <dl className="lean-floating-facts">
+              <div><dt>Marcapasso</dt><dd>{simulation.pacemaker?.label || 'Não definido'}</dd></div>
+              <div><dt>Pull</dt><dd>{simulation.pullSystemActive ? `Ativo · WIP ${simulation.pullWipLimit}` : 'Incompleto'}</dd></div>
+              <div><dt>Kanban</dt><dd>{simulation.kanbanCardTotal} cartão(ões) · {simulation.kanbanAuthorizedUnits} un</dd></div>
+              <div><dt>Heijunka</dt><dd>{simulation.heijunkaBoxes.length && simulation.pacemaker ? `Ativo · ${simulation.leveledSequence.length} slots` : 'Inativo'}</dd></div>
+              <div><dt>Pitch</dt><dd>{simulation.pitchTimeSec > 0 ? `${(simulation.pitchTimeSec / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} min` : '—'}</dd></div>
+              <div><dt>EPEI</dt><dd>{simulation.epeiDays === Infinity ? 'Sem capacidade' : simulation.epeiDays > 0 ? `${simulation.epeiDays.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dia(s)` : '—'}</dd></div>
+            </dl>
+            <div className="lean-floating-actions">
+              <button className="lean-assistant-button" onClick={() => { setLeanPanelOpen(false); setLeanAssistantOpen(true); }}><BookOpen size={14}/><span>Abrir Assistente Lean</span><b>{leanActionCount}</b></button>
+              {activeKind === 'future' && <button className="stress-test-button" onClick={() => { setLeanPanelOpen(false); setStressTestOpen(true); }}><Activity size={14}/><span>Teste de estresse</span></button>}
+            </div>
+          </div>}
+        </div>
 
         <div className="canvas-floating-tools no-print">
           <label className="theme-color-button" title="Personalizar a cor de todo o MFV">
