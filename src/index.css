@@ -32,23 +32,33 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 
 /* ─── Shell ─────────────────────────────────────────────────────────── */
 .app-shell {
-  display: flex; height: 100vh; overflow: hidden;
+  position: relative; display: flex; height: 100vh; overflow: hidden;
 }
 
 /* ─── Sidebar ───────────────────────────────────────────────────────── */
-.app-sidebar {
-  width: 292px; flex: 0 0 292px;
-  display: flex; flex-direction: column;
-  background: linear-gradient(180deg,rgba(250,251,253,.88),rgba(240,243,248,.8));
-  backdrop-filter: saturate(200%) blur(24px);
-  -webkit-backdrop-filter: saturate(200%) blur(24px);
-  border-right: 1px solid rgba(0,0,0,.07);
-  box-shadow: 10px 0 36px rgba(24,34,48,.055);
-  transition: width .25s, flex-basis .25s;
-  overflow: hidden;
-  z-index: 20;
+.menu-floating-trigger {
+  position: fixed; top: 16px; left: 18px; z-index: 32;
+  height: var(--glass-height); min-width: 104px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 17px;
+  color: #30343a; background: var(--glass-surface); border: 1px solid var(--glass-border); border-radius: 999px;
+  box-shadow: var(--glass-shadow); backdrop-filter: blur(28px) saturate(185%); -webkit-backdrop-filter: blur(28px) saturate(185%);
+  font-size: 10.5px; font-weight: 720; letter-spacing: -.01em; transition: color .18s ease, background .18s ease, box-shadow .18s ease, transform .18s ease;
 }
-.sidebar-collapsed .app-sidebar { width: 72px; flex-basis: 72px; }
+.menu-floating-trigger:hover { color: #0068c9; background: rgba(255,255,255,.94); box-shadow: 0 17px 42px rgba(25,38,55,.18), inset 0 1px rgba(255,255,255,.96); transform: translateY(-1px); }
+.menu-floating-trigger[aria-expanded="true"] { color: #7c2d24; background: linear-gradient(145deg,rgba(255,255,255,.92),rgba(255,244,242,.78)); }
+.app-sidebar {
+  position: fixed; top: 76px; bottom: 18px; left: 18px; z-index: 30;
+  width: 292px;
+  display: flex; flex-direction: column;
+  background: linear-gradient(155deg,rgba(255,255,255,.89),rgba(239,244,251,.76));
+  backdrop-filter: saturate(190%) blur(30px);
+  -webkit-backdrop-filter: saturate(190%) blur(30px);
+  border: 1px solid rgba(255,255,255,.76); border-radius: 22px;
+  box-shadow: 0 24px 70px rgba(24,34,48,.2), inset 0 1px rgba(255,255,255,.92), inset 0 -1px rgba(100,125,155,.08);
+  opacity: 0; visibility: hidden; pointer-events: none; transform: translateX(-22px) scale(.975); transform-origin: top left;
+  transition: opacity .2s ease, visibility .2s ease, transform .24s cubic-bezier(.2,.75,.25,1);
+  overflow: hidden;
+}
+.menu-open .app-sidebar { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
 
 .sidebar-brand {
   position: relative; display: flex; align-items: center; gap: 10px;
@@ -64,22 +74,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .sidebar-brand-text { overflow: hidden; transition: opacity .2s, width .2s; }
 .sidebar-brand-text strong { display: block; font-size: 12.5px; font-weight: 720; letter-spacing: -.025em; }
 .sidebar-brand-text span { display: block; color: #8e8e93; font-size: 8.5px; margin-top: 3px; white-space: nowrap; }
-.sidebar-collapsed .sidebar-brand-text { width: 0; opacity: 0; }
-.sidebar-collapsed .sidebar-brand { justify-content: center; padding-inline: 0; }
-.sidebar-collapsed .app-symbol { display: none; }
-.sidebar-collapsed .collapse-button { position: static; transform: none; }
-.collapse-button {
-  position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
-  width: 26px; height: 26px; display: grid; place-items: center;
-  color: #77777d; background: rgba(255,255,255,.72); border: 1px solid rgba(0,0,0,.07); border-radius: 8px;
-}
-.collapse-button:hover { background: white; color: #0068cf; box-shadow: 0 3px 10px rgba(0,0,0,.06); }
 
 .sidebar-section-label {
   padding: 6px 16px 7px; color: #8e8e93;
   font-size: 8px; font-weight: 760; letter-spacing: .09em; text-transform: uppercase;
 }
-.sidebar-collapsed .sidebar-section-label { display: none; }
 
 .sidebar-nav { display: grid; gap: 3px; margin: 0 10px; padding: 6px; background: rgba(255,255,255,.72); border: 1px solid rgba(0,0,0,.06); border-radius: 14px; box-shadow: 0 2px 9px rgba(25,35,50,.035); }
 .sidebar-nav button {
@@ -95,8 +94,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .sidebar-nav-copy strong { overflow: hidden; font-size: 10.5px; font-weight: 680; text-overflow: ellipsis; }
 .sidebar-nav-copy small { overflow: hidden; color: #8e8e93; font-size: 7.5px; font-weight: 520; text-overflow: ellipsis; }
 .sidebar-nav button.active .sidebar-nav-copy small { color: currentColor; opacity: .7; }
-.sidebar-collapsed .sidebar-nav button { justify-content: center; padding: 0; }
-.sidebar-collapsed .sidebar-nav-copy { display: none; }
 
 /* Biblioteca de elementos */
 .sidebar-workspace {
@@ -151,7 +148,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .library-empty { grid-column: 1 / -1; min-height: 150px; display: grid; place-items: center; align-content: center; gap: 5px; color: #a1a1a7; text-align: center; }
 .library-empty strong { color: #66666c; font-size: 10px; }
 .library-empty span { font-size: 8px; }
-.sidebar-collapsed .library-panel { display: none; }
 
 /* Sidebar bottom */
 .sidebar-bottom {
@@ -180,16 +176,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .sidebar-project-actions { display: grid; gap: 3px; margin: 2px 4px 3px; padding: 5px 0 0 8px; border-top: 1px solid rgba(0,0,0,.055); border-left: 2px solid #e2e2e6; }
 .sidebar-bottom .sidebar-clear-button { color: #9c3a33; }
 .sidebar-bottom .sidebar-clear-button:hover { color: #ad2f26; background: #fff0ee; border-color: #f0d0cc; }
-.sidebar-collapsed .save-state span,
-.sidebar-collapsed .sidebar-bottom button span { display: none; }
-.sidebar-collapsed .save-state,
-.sidebar-collapsed .sidebar-bottom button { justify-content: center; padding: 0; }
-.sidebar-collapsed .sidebar-project-toggle { display: flex !important; }
-.sidebar-collapsed .sidebar-project-toggle .save-state { display: none; }
-.sidebar-collapsed .sidebar-project-actions { padding-left: 0; border-left: 0; }
-.sidebar-compact-actions { margin-top: auto; display: grid; gap: 5px; padding: 10px; border-top: 1px solid var(--line); }
-.sidebar-compact-actions button { width: 42px; height: 38px; display: grid; place-items: center; color: #5a5a60; background: transparent; border: 0; border-radius: 9px; }
-.sidebar-compact-actions button:hover { color: #0068c9; background: rgba(0,113,227,.09); }
 
 /* ─── Main ──────────────────────────────────────────────────────────── */
 .app-main { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: #f4f5f7; }
@@ -290,7 +276,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .live-launch-button.running { color: white; background: #1a6b3a; border-color: #1a6b3a; box-shadow: 0 4px 12px rgba(26,107,58,.2); }
 .live-simulation-bar {
   position: relative; min-height: 76px; flex: 0 0 auto; display: flex; align-items: stretch; justify-content: space-between; gap: 12px;
-  margin: 12px 176px 0 14px; padding: 10px 12px 12px; overflow: hidden;
+  margin: 12px 176px 0 136px; padding: 10px 12px 12px; overflow: hidden;
   color: #f8fbff; background: linear-gradient(112deg,rgba(17,26,38,.97),rgba(25,49,70,.96));
   border: 1px solid rgba(255,255,255,.08); border-radius: 18px;
   box-shadow: 0 16px 42px rgba(15,25,38,.2), inset 0 1px rgba(255,255,255,.06);
@@ -332,7 +318,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .live-bottleneck-help { filter: drop-shadow(0 8px 16px rgba(35,20,18,.16)); }
 .scenario-toolbar {
   min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 8px 176px 8px 22px; background: linear-gradient(180deg,rgba(255,255,255,.8),rgba(248,250,253,.66)); border-bottom: 1px solid rgba(255,255,255,.7); box-shadow: inset 0 -1px rgba(70,90,120,.06); backdrop-filter: blur(24px) saturate(170%);
+  padding: 8px 176px 8px 136px; background: linear-gradient(180deg,rgba(255,255,255,.8),rgba(248,250,253,.66)); border-bottom: 1px solid rgba(255,255,255,.7); box-shadow: inset 0 -1px rgba(70,90,120,.06); backdrop-filter: blur(24px) saturate(170%);
 }
 .scenario-selector, .scenario-actions { display: flex; align-items: center; gap: 8px; }
 .scenario-selector > span:first-child { color: #6e6e73; font-size: 9px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
@@ -902,7 +888,6 @@ g:hover > .edit-btn-group { opacity: 1; }
 .export-source { position: absolute; top: -9999px; left: -9999px; pointer-events: none; }
 
 @media (max-width: 1180px) {
-  .app-sidebar { width: 258px; flex-basis: 258px; }
   .app-header { right: 18px; bottom: 72px; grid-template-columns: minmax(150px,auto) minmax(340px,1fr) auto; }
   .header-actions { gap: 5px; }
   .header-actions button { padding-inline: 9px; }
@@ -923,6 +908,8 @@ g:hover > .edit-btn-group { opacity: 1; }
 }
 
 @media (max-width: 800px) {
+  .menu-floating-trigger { top: 12px; left: 12px; height: 44px; min-width: 92px; padding-inline: 14px; }
+  .app-sidebar { top: 66px; right: 12px; bottom: 12px; left: 12px; width: auto; max-width: 320px; border-radius: 19px; }
   .app-header { right: 12px; bottom: 70px; left: 12px; height: auto; grid-template-columns: 1fr; gap: 8px; padding: 10px; border-radius: 15px; }
   .header-actions { width: 100%; justify-content: flex-start; }
   .simulation-summary { width: 100%; overflow-x: auto; }
@@ -940,8 +927,8 @@ g:hover > .edit-btn-group { opacity: 1; }
   .scenario-actions button span { display: none; }
   .live-launch-button span { display: none; }
   .canvas-delete-hint { display: none; }
-  .scenario-toolbar { padding-right: 72px; }
-  .live-simulation-bar { margin-right: 70px; padding-right: 12px; }
+  .scenario-toolbar { padding: 68px 72px 8px 12px; }
+  .live-simulation-bar { margin: 68px 70px 0 12px; padding-right: 12px; }
   .live-playback-controls { flex-wrap: wrap; }
   .live-panel-heading { min-width: 138px; }
   .lean-floating-control { right: 10px; }

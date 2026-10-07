@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Activity, AlertTriangle, BarChart3, BookOpen, Calculator, CheckCircle2, Copy, Download, FileImage, FileText, GitCompareArrows,
-  ChevronDown, ImageDown, LayoutTemplate, Loader2, Map, Palette, PanelLeftClose, PanelLeftOpen, Pencil, Plus,
+  ChevronDown, ImageDown, LayoutTemplate, Loader2, Map, Menu as MenuIcon, Palette, Pencil, Plus,
   Pause, Play, RotateCcw, Route, Search, Sparkles, Square, Trash2, X, ZoomIn, ZoomOut, Minus,
 } from 'lucide-react';
 import {
@@ -2565,7 +2565,7 @@ export default function App() {
   const [editingArrow, setEditingArrow] = useState<CanvasArrow | null>(null);
   const [dragging, setDragging] = useState<Dragging | null>(null);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuides>({});
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [projectToolsOpen, setProjectToolsOpen] = useState(false);
   const [leanPanelOpen, setLeanPanelOpen] = useState(false);
   const [saved, setSaved] = useState(true);
@@ -3211,15 +3211,23 @@ export default function App() {
   };
 
   return (
-    <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-      {/* Sidebar */}
-      <aside className="app-sidebar no-print">
+    <div className={`app-shell ${menuOpen ? 'menu-open' : ''}`}>
+      <button
+        className="menu-floating-trigger no-print"
+        type="button"
+        aria-controls="main-menu-panel"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((open) => !open)}
+      >
+        {menuOpen ? <X size={17} /> : <MenuIcon size={17} />}
+        <span>{menuOpen ? 'Fechar' : 'Menu'}</span>
+      </button>
+
+      {/* Menu lateral flutuante */}
+      <aside id="main-menu-panel" className="app-sidebar no-print" aria-hidden={!menuOpen}>
         <div className="sidebar-brand">
           <div className="app-symbol"><Route size={20} /></div>
           <div className="sidebar-brand-text"><strong>MFV Simulador</strong><span>Fluxo de valor inteligente</span></div>
-          <button className="collapse-button" onClick={() => setSidebarCollapsed(v => !v)} title={sidebarCollapsed ? 'Expandir barra lateral' : 'Recolher barra lateral'}>
-            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-          </button>
         </div>
 
         <div className="sidebar-section-label"><span>Mapa e cenário</span></div>
@@ -3235,7 +3243,7 @@ export default function App() {
           </button>
         </nav>
 
-        {!sidebarCollapsed && <div className="sidebar-workspace">
+        <div className="sidebar-workspace">
           <div className="sidebar-group">
             <LibraryPanel onDragStart={onLibDragStart} accentColor={DEFAULT_THEME_COLOR} />
           </div>
@@ -3253,12 +3261,7 @@ export default function App() {
               </button>
             </div>}
           </div>
-        </div>}
-
-        {sidebarCollapsed && <div className="sidebar-compact-actions">
-          <button onClick={() => setManualOpen(true)} title="Manual de uso"><BookOpen size={18}/></button>
-          <button onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }} title="Imprimir e exportar"><Download size={18}/></button>
-        </div>}
+        </div>
       </aside>
 
       {/* Main */}
@@ -3533,7 +3536,7 @@ function ManualModal({ onClose }: { onClose: () => void }) {
     {
       title: 'Comece pelo Estado Atual', icon: <Map size={18}/>, summary: 'Registre o processo como ele realmente acontece hoje, sem antecipar melhorias.',
       bullets: [
-        'Abra Estado atual na sidebar. Tudo que for criado nele será levado automaticamente aos cenários futuros.',
+        'Abra Menu e selecione Estado atual. Tudo que for criado nele será levado automaticamente aos cenários futuros.',
         'Use Modelo base do Excel se quiser começar com a estrutura padrão já montada.',
         'Mantenha Matéria-prima como início do fluxo e Cliente final como término.',
       ],
@@ -3542,7 +3545,7 @@ function ManualModal({ onClose }: { onClose: () => void }) {
     {
       title: 'Informe demanda e TAKT', icon: <Calculator size={18}/>, summary: 'Defina o ritmo exigido pelo cliente antes de analisar capacidade.',
       bullets: [
-        'Clique em Demanda e TAKT na sidebar ou na caixa fixa Controle da Produção.',
+        'Clique em Demanda e TAKT dentro do Menu ou na caixa fixa Controle da Produção.',
         'Informe demanda mensal, dias úteis e minutos disponíveis por dia.',
         'Cadastre o mix de produtos e a quantidade por embalagem para calcular pitch e Heijunka.',
       ],
@@ -3596,7 +3599,7 @@ function ManualModal({ onClose }: { onClose: () => void }) {
     {
       title: 'Imprima somente o MFV', icon: <Download size={18}/>, summary: 'Exporte o mapa completo sem sidebar, controles ou espaço vazio do canvas.',
       bullets: [
-        'Clique em Imprimir e exportar na sidebar ou em Exportar no cabeçalho.',
+        'Clique em Imprimir e exportar dentro do Menu ou em Exportar no cabeçalho.',
         'Escolha A1, A2, A3 ou A4. A orientação e a escala são calculadas automaticamente.',
         'Use PDF para impressão, JPEG para apresentação ou SVG para manter o desenho vetorial.',
       ],
