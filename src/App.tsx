@@ -59,6 +59,14 @@ interface CanvasWorkspace {
   activeFutureId: string;
 }
 
+function cloneWorkspace(workspace: CanvasWorkspace): CanvasWorkspace {
+  return {
+    current: cloneCanvas(workspace.current),
+    futures: workspace.futures.map((variant) => ({ ...variant, canvas: cloneCanvas(variant.canvas) })),
+    activeFutureId: workspace.activeFutureId,
+  };
+}
+
 interface HeijunkaSlot {
   productId: string;
   name: string;
@@ -1341,9 +1349,12 @@ function LibraryPanel({ onDragStart, accentColor }: { onDragStart: (item: Librar
       <button className="library-heading" onClick={() => setOpen((value) => !value)} aria-expanded={open}><div><strong>Biblioteca</strong><span>{open ? 'Arraste para o mapa' : 'Clique para expandir'}</span></div><span className="library-heading-action"><b>{visibleItems.length}</b><ChevronDown size={14}/></span></button>
       {open && <>
       <label className="library-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar símbolo" aria-label="Buscar símbolo" />{query && <button onClick={() => setQuery('')} aria-label="Limpar busca"><X size={12}/></button>}</label>
-      {!normalizedQuery && <div className="library-tabs">
-        {groups.map((group) => <button key={group} className={activeGroup === group ? 'active' : ''} onClick={() => setActiveGroup(group)}>{GROUP_LABELS[group]}<small>{LIBRARY.filter((item) => item.group === group && !['planning','timeline'].includes(item.kind)).length}</small></button>)}
-      </div>}
+      {!normalizedQuery && <label className="library-category-select">
+        <span>Categoria</span>
+        <select value={activeGroup} onChange={(event) => setActiveGroup(event.target.value)} aria-label="Categoria da biblioteca">
+          {groups.map((group) => <option key={group} value={group}>{GROUP_LABELS[group]} · {LIBRARY.filter((item) => item.group === group && !['planning','timeline'].includes(item.kind)).length}</option>)}
+        </select>
+      </label>}
       {normalizedQuery && <div className="library-search-result"><span>Resultados para “{query.trim()}”</span></div>}
       <div className="library-items">
         {visibleItems.map((item) => (
@@ -2387,6 +2398,10 @@ function ScenarioPill({ kind }: { kind: ActiveKind }) {
 export default function App() {
   const [activeKind, setActiveKind] = useState<ActiveKind>('current');
   const [workspace, setWorkspace] = useState<CanvasWorkspace>(loadWorkspace);
+  const workspaceRef = useRef(workspace);
+  const undoStackRef = useRef<CanvasWorkspace[]>([]);
+  const dragUndoSnapshotRef = useRef<CanvasWorkspace | null>(null);
+  workspaceRef.current = workspace;
   const activeFuture = workspace.futures.find((variant) => variant.id === workspace.activeFutureId) ?? workspace.futures[0];
   const canvas = activeKind === 'current' ? workspace.current : activeFuture.canvas;
   const simulation = calculateCanvasSimulation(canvas);
@@ -2401,11 +2416,17 @@ export default function App() {
       }
     : null;
 
-  const setCanvas = useCallback((next: CanvasState | ((p: CanvasState) => CanvasState)) => {
+  const setCanvas = useCallback((next: CanvasState | ((p: CanvasState) => CanvasState), skipHistory = false) => {
     setWorkspace((previous) => {
       const selectedFuture = previous.futures.find((variant) => variant.id === previous.activeFutureId) ?? previous.futures[0];
       const activeCanvas = activeKind === 'current' ? previous.current : selectedFuture.canvas;
       const updated = normalizeCanvas(typeof next === 'function' ? next(activeCanvas) : next);
+      if (!skipHistory) {
+        const snapshot = cloneWorkspace(previous);
+        if (!undoStackRef.current[0] || JSON.stringify(undoStackRef.current[0]) !== JSON.stringify(snapshot)) {
+          undoStackRef.current = [snapshot, ...undoStackRef.current].slice(0, 80);
+        }
+      }
       const result: CanvasWorkspace = activeKind === 'current'
         ? {
             ...previous,
@@ -2420,9 +2441,25 @@ export default function App() {
             futures: previous.futures.map((variant) => variant.id === previous.activeFutureId ? { ...variant, canvas: updated } : variant),
           };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+      workspaceRef.current = result;
       return result;
     });
   }, [activeKind]);
+
+  const undoLastChange = useCallback(() => {
+    const previous = undoStackRef.current[0];
+    if (!previous) return;
+    undoStackRef.current = undoStackRef.current.slice(1);
+    const restored = cloneWorkspace(previous);
+    workspaceRef.current = restored;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
+    setWorkspace(restored);
+    setSelectedId(null);
+    setEditingEl(null);
+    setEditingArrow(null);
+    setDragging(null);
+    setAlignmentGuides({});
+  }, []);
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 80, y: 80 });
@@ -2608,6 +2645,7 @@ export default function App() {
     const t = e.target as SVGElement;
     if (t === svgRef.current || t.classList.contains('canvas-bg')) {
       setSelectedId(null);
+      dragUndoSnapshotRef.current = null;
       setDragging({ type: 'pan', startX: e.clientX, startY: e.clientY, origX: pan.x, origY: pan.y });
       e.preventDefault();
     }
@@ -2618,6 +2656,7 @@ export default function App() {
     const el = canvas.elements.find((el) => el.id === id)!;
     setSelectedId(id);
     dragMovedRef.current = false;
+    dragUndoSnapshotRef.current = cloneWorkspace(workspaceRef.current);
     setDragging({ type: 'element', id, startX: e.clientX, startY: e.clientY, origX: el.x, origY: el.y });
   };
 
@@ -2625,6 +2664,7 @@ export default function App() {
     e.stopPropagation();
     setSelectedId(id);
     dragMovedRef.current = false;
+    dragUndoSnapshotRef.current = cloneWorkspace(workspaceRef.current);
     setDragging({ type: 'arrow-point', id, point });
   };
 
@@ -2634,6 +2674,7 @@ export default function App() {
     const size = elementDimensions(element);
     setSelectedId(element.id);
     dragMovedRef.current = false;
+    dragUndoSnapshotRef.current = cloneWorkspace(workspaceRef.current);
     setDragging({
       type: 'element-resize', id: element.id, corner, startX: e.clientX, startY: e.clientY,
       origX: element.x, origY: element.y, origWidth: size.width, origHeight: size.height,
@@ -2645,6 +2686,7 @@ export default function App() {
     e.stopPropagation();
     setSelectedId(arrow.id);
     dragMovedRef.current = false;
+    dragUndoSnapshotRef.current = cloneWorkspace(workspaceRef.current);
     setDragging({
       type: 'arrow', id: arrow.id, startX: e.clientX, startY: e.clientY,
       x1: arrow.x1, y1: arrow.y1, x2: arrow.x2, y2: arrow.y2,
@@ -2668,7 +2710,7 @@ export default function App() {
           const elements = p.elements.map((el) =>
             el.id === dragging.id ? { ...el, x: snapped.x, y: snapped.y } : el);
           return { ...p, elements, arrows: syncAnchoredArrows(p.arrows, elements) };
-        });
+        }, true);
       } else if (dragging.type === 'element-resize') {
         const dx = (e.clientX - dragging.startX) / zoom;
         const dy = (e.clientY - dragging.startY) / zoom;
@@ -2686,7 +2728,7 @@ export default function App() {
             ? { ...element, x, y, data: { ...element.data, width, height } }
             : element);
           return { ...p, elements, arrows: syncAnchoredArrows(p.arrows, elements) };
-        });
+        }, true);
       } else if (dragging.type === 'arrow') {
         const dx = (e.clientX - dragging.startX) / zoom;
         const dy = (e.clientY - dragging.startY) / zoom;
@@ -2699,11 +2741,12 @@ export default function App() {
           y2: dragging.y2 + dy,
           startAnchor: undefined,
           endAnchor: undefined,
-        } : arrow) }));
+        } : arrow) }), true);
       } else if (dragging.type === 'arrow-point') {
         const rect = svgRef.current?.getBoundingClientRect();
         if (!rect) return;
         const { x, y } = toCanvas(e.clientX - rect.left, e.clientY - rect.top);
+        dragMovedRef.current = true;
         setCanvas((p) => {
           const connection = findArrowAnchor(x, y, p.elements);
           return { ...p, arrows: p.arrows.map((a) => {
@@ -2721,10 +2764,18 @@ export default function App() {
               endAnchor: connection?.anchor,
             };
           }) };
-        });
+        }, true);
       }
     };
-    const onUp = () => { setDragging(null); setAlignmentGuides({}); };
+    const onUp = () => {
+      const snapshot = dragUndoSnapshotRef.current;
+      if (dragging?.type !== 'pan' && snapshot && JSON.stringify(snapshot) !== JSON.stringify(workspaceRef.current)) {
+        undoStackRef.current = [snapshot, ...undoStackRef.current].slice(0, 80);
+      }
+      dragUndoSnapshotRef.current = null;
+      setDragging(null);
+      setAlignmentGuides({});
+    };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
@@ -2741,6 +2792,18 @@ export default function App() {
       return nz;
     });
   };
+
+  useEffect(() => {
+    const handleUndoShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.key.toLowerCase() !== 'z') return;
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return;
+      event.preventDefault();
+      undoLastChange();
+    };
+    window.addEventListener('keydown', handleUndoShortcut);
+    return () => window.removeEventListener('keydown', handleUndoShortcut);
+  }, [undoLastChange]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -3198,7 +3261,7 @@ export default function App() {
           <div className="canvas-delete-hint">
             {[FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(selectedId)
               ? <>Caixa fixa do cenário · arraste para mover · duplo clique para editar</>
-              : <>Pressione <kbd>Delete</kbd> para remover · duplo clique para editar</>}
+              : <>Pressione <kbd>Delete</kbd> para remover · <kbd>Ctrl</kbd> + <kbd>Z</kbd> para desfazer · duplo clique para editar</>}
           </div>
         )}
       </main>

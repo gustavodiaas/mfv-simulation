@@ -117,6 +117,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .library-search input { min-width: 0; flex: 1; padding: 0; color: #2b2b2f; background: transparent; border: 0; outline: 0; font-size: 9.5px; cursor: text; }
 .library-search input::placeholder { color: #aaaab0; }
 .library-search button { width: 23px; height: 23px; display: grid; place-items: center; padding: 0; color: #8e8e93; background: #f0f0f2; border: 0; border-radius: 50%; }
+.library-category-select { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 8px; margin: 0 9px 9px; }
+.library-category-select > span { color: #8e8e93; font-size: 7.5px; font-weight: 650; }
+.library-category-select select { min-width: 0; width: 100%; height: 31px; padding: 0 28px 0 9px; color: #343438; background: #f2f2f4; border: 0; border-radius: 8px; font-size: 8.5px; font-weight: 650; }
+.library-category-select select:hover { background: #eaeaed; }
 .library-tabs { display: flex; gap: 5px; margin: 0 9px 9px; padding: 1px 0 4px; overflow-x: auto; scrollbar-width: none; }
 .library-tabs::-webkit-scrollbar { display: none; }
 .library-tabs button { min-width: max-content; height: 27px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; color: #6e6e73; background: #eeeef1; border: 1px solid transparent; border-radius: 8px; font-size: 7.5px; font-weight: 700; }
