@@ -1334,6 +1334,58 @@ const GROUP_LABELS: Record<string, string> = {
   operador: 'Operador', fluxo: 'Setas / Fluxo', anotacao: 'Anotação',
 };
 
+interface SiteSelectOption { value: string; label: string }
+
+function SiteSelect({ value, options, onChange, ariaLabel, className = '' }: {
+  value: string;
+  options: SiteSelectOption[];
+  onChange: (value: string) => void;
+  ariaLabel: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0, width: 220, above: false });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const selected = options.find((option) => option.value === value) ?? options[0];
+
+  const toggle = () => {
+    if (!open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const estimatedHeight = Math.min(280, options.length * 36 + 12);
+      const above = rect.bottom + estimatedHeight > window.innerHeight - 12 && rect.top > estimatedHeight;
+      const width = Math.min(Math.max(rect.width, 190), window.innerWidth - 20);
+      const left = Math.max(10, Math.min(rect.left, window.innerWidth - width - 10));
+      setMenuPosition({ left, top: above ? rect.top - 6 : rect.bottom + 6, width, above });
+    }
+    setOpen((current) => !current);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return <>
+    <button ref={buttonRef} type="button" className={`site-select-trigger ${className}`} onClick={toggle} aria-label={ariaLabel} aria-expanded={open}>
+      <span>{selected?.label ?? 'Selecione'}</span><ChevronDown size={14}/>
+    </button>
+    {open && createPortal(<div className="site-select-layer" onMouseDown={() => setOpen(false)}>
+      <div className={`site-select-menu ${menuPosition.above ? 'above' : ''}`} style={{ left: menuPosition.left, top: menuPosition.top, width: menuPosition.width }} onMouseDown={(event) => event.stopPropagation()}>
+        {options.map((option) => <button type="button" key={option.value} className={option.value === value ? 'selected' : ''} onClick={() => { onChange(option.value); setOpen(false); }}>
+          <span>{option.label}</span>{option.value === value && <CheckCircle2 size={14}/>}
+        </button>)}
+      </div>
+    </div>, document.body)}
+  </>;
+}
+
 function LibraryPanel({ onDragStart, accentColor }: { onDragStart: (item: LibraryItem, e: React.DragEvent) => void; accentColor: string }) {
   const [activeGroup, setActiveGroup] = useState('material');
   const [query, setQuery] = useState('');
@@ -1351,9 +1403,7 @@ function LibraryPanel({ onDragStart, accentColor }: { onDragStart: (item: Librar
       <label className="library-search"><Search size={14}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar símbolo" aria-label="Buscar símbolo" />{query && <button onClick={() => setQuery('')} aria-label="Limpar busca"><X size={12}/></button>}</label>
       {!normalizedQuery && <label className="library-category-select">
         <span>Categoria</span>
-        <select value={activeGroup} onChange={(event) => setActiveGroup(event.target.value)} aria-label="Categoria da biblioteca">
-          {groups.map((group) => <option key={group} value={group}>{GROUP_LABELS[group]} · {LIBRARY.filter((item) => item.group === group && !['planning','timeline'].includes(item.kind)).length}</option>)}
-        </select>
+        <SiteSelect value={activeGroup} onChange={setActiveGroup} ariaLabel="Categoria da biblioteca" options={groups.map((group) => ({ value: group, label: `${GROUP_LABELS[group]} · ${LIBRARY.filter((item) => item.group === group && !['planning','timeline'].includes(item.kind)).length}` }))}/>
       </label>}
       {normalizedQuery && <div className="library-search-result"><span>Resultados para “{query.trim()}”</span></div>}
       <div className="library-items">
@@ -1717,28 +1767,24 @@ function ElementPopover({ el, processes, assumptions, onUpdate, onDelete, onClos
       <div style={{ padding: '0 0 4px' }}>
         {el.kind === 'pacemaker' && <div className="popover-field" style={{ marginTop: 8 }}>
           <label>Processo programado</label>
-          <select className="popover-select" value={String(el.data.processId ?? '')}
-            onChange={(event) => {
-              const process = processes.find((candidate) => candidate.id === event.target.value);
-              onUpdate({ label: process?.label ?? 'Processo', data: { ...el.data, processId: event.target.value } });
-            }}>
-            <option value="">Selecione o processo</option>
-            {processes.map((process) => <option key={process.id} value={process.id}>{process.label || 'Processo sem nome'}</option>)}
-          </select>
+          <SiteSelect className="popover-select" value={String(el.data.processId ?? '')} ariaLabel="Processo programado"
+            options={[{ value: '', label: 'Selecione o processo' }, ...processes.map((process) => ({ value: process.id, label: process.label || 'Processo sem nome' }))]}
+            onChange={(value) => {
+              const process = processes.find((candidate) => candidate.id === value);
+              onUpdate({ label: process?.label ?? 'Processo', data: { ...el.data, processId: value } });
+            }}/>
           <small className="popover-field-help">Somente este processo recebe a programação do fluxo.</small>
         </div>}
         {kanbanSizing && <div className="kanban-sizing-editor">
           <div className="popover-field">
             <label>Produto atendido</label>
-            <select className="popover-select" value={kanbanSizing.productId}
-              onChange={(event) => {
-                const data: Record<string, string | number> = { ...el.data, productId: event.target.value };
+            <SiteSelect className="popover-select" value={kanbanSizing.productId} ariaLabel="Produto atendido"
+              options={[{ value: '', label: 'Mix total' }, ...scenario.productMetrics.filter((item) => item.monthlyDemand > 0).map((item) => ({ value: item.id, label: item.name }))]}
+              onChange={(value) => {
+                const data: Record<string, string | number> = { ...el.data, productId: value };
                 delete data.packSize;
                 onUpdate({ data });
-              }}>
-              <option value="">Mix total</option>
-              {scenario.productMetrics.filter((item) => item.monthlyDemand > 0).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
+              }}/>
           </div>
           <div className="kanban-sizing-grid">
             <label><span>Reposição completa</span><div className="popover-input-wrap"><input type="number" min={0} step="any" value={kanbanSizing.replenishmentMin} onChange={(event) => updateKanbanData('replenishmentMin', Math.max(0, Number(event.target.value) || 0))}/><span>min</span></div></label>
@@ -2057,10 +2103,8 @@ function ArrowPopover({ arrow, onUpdate, onDelete, onClose }: {
       <div style={{ padding: '0 0 4px' }}>
         <div className="popover-field" style={{ marginTop: 8 }}>
           <label>Tipo</label>
-          <select value={arrow.kind} onChange={(e) => onUpdate({ kind: e.target.value as CanvasArrow['kind'] })}
-            className="popover-select">
-            {kinds.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-          </select>
+          <SiteSelect value={arrow.kind} onChange={(value) => onUpdate({ kind: value as CanvasArrow['kind'] })}
+            ariaLabel="Tipo da seta" className="popover-select" options={kinds}/>
         </div>
         <div className="popover-field" style={{ marginTop: 8 }}>
           <label>Rótulo</label>
@@ -2395,6 +2439,55 @@ function ScenarioPill({ kind }: { kind: ActiveKind }) {
   return <span className={`scenario-pill ${kind}`}>{kind==='current'?'Estado atual':'Estado futuro'}</span>;
 }
 
+interface AppDialogState {
+  type: 'alert' | 'confirm' | 'prompt';
+  title: string;
+  message: string;
+  value?: string;
+  confirmLabel?: string;
+  destructive?: boolean;
+  onConfirm?: (value?: string) => void;
+}
+
+function AppDialog({ dialog, onClose }: { dialog: AppDialogState; onClose: () => void }) {
+  const [value, setValue] = useState(dialog.value ?? '');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (dialog.type === 'prompt') setTimeout(() => inputRef.current?.select(), 0);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key === 'Enter' && dialog.type === 'prompt' && value.trim()) {
+        dialog.onConfirm?.(value.trim());
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dialog, onClose, value]);
+
+  const confirm = () => {
+    dialog.onConfirm?.(dialog.type === 'prompt' ? value.trim() : undefined);
+    onClose();
+  };
+
+  return createPortal(<div className="editor-overlay app-dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title">
+    <button className="editor-backdrop" onClick={onClose} aria-label="Fechar diálogo"/>
+    <section className="editor-window app-dialog">
+      <div className={`app-dialog-symbol ${dialog.destructive ? 'destructive' : ''}`}>
+        {dialog.destructive ? <AlertTriangle size={21}/> : dialog.type === 'alert' ? <Activity size={21}/> : <Route size={21}/>}
+      </div>
+      <h2 id="app-dialog-title">{dialog.title}</h2>
+      <p>{dialog.message}</p>
+      {dialog.type === 'prompt' && <input ref={inputRef} value={value} onChange={(event) => setValue(event.target.value)} aria-label={dialog.title}/>}
+      <footer>
+        {dialog.type !== 'alert' && <button className="quiet-button" onClick={onClose}>Cancelar</button>}
+        <button className={`primary-button ${dialog.destructive ? 'destructive' : ''}`} disabled={dialog.type === 'prompt' && !value.trim()} onClick={confirm}>{dialog.confirmLabel ?? (dialog.type === 'alert' ? 'Entendi' : 'Confirmar')}</button>
+      </footer>
+    </section>
+  </div>, document.body);
+}
+
 export default function App() {
   const [activeKind, setActiveKind] = useState<ActiveKind>('current');
   const [workspace, setWorkspace] = useState<CanvasWorkspace>(loadWorkspace);
@@ -2479,6 +2572,7 @@ export default function App() {
   const [leanAssistantOpen, setLeanAssistantOpen] = useState(false);
   const [stressTestOpen, setStressTestOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(() => localStorage.getItem(MANUAL_SEEN_KEY) !== 'true');
+  const [appDialog, setAppDialog] = useState<AppDialogState | null>(null);
   const [appliedLeanFixes, setAppliedLeanFixes] = useState<AppliedLeanFix[]>([]);
   const [leanUndoStack, setLeanUndoStack] = useState<CanvasState[]>([]);
   const [liveRunning, setLiveRunning] = useState(false);
@@ -2618,7 +2712,7 @@ export default function App() {
       if (kind === 'pacemaker') {
         const existingPacemaker = canvas.elements.find((element) => element.kind === 'pacemaker');
         if (existingPacemaker) {
-          window.alert('O MFV deve ter somente um processo marcapasso. Edite ou mova o marcapasso existente.');
+          setAppDialog({ type: 'alert', title: 'Marcapasso já definido', message: 'O MFV deve ter somente um processo marcapasso. Edite ou mova o marcapasso existente.' });
           setSelectedId(existingPacemaker.id);
           return;
         }
@@ -2889,9 +2983,24 @@ export default function App() {
   };
 
   const applyExcelTemplate = () => {
-    if (!window.confirm('Substituir este cenário pelo modelo base inspirado no Excel? Os dados atuais deste cenário serão removidos.')) return;
-    setCanvas((previous) => createExcelTemplate(previous.assumptions, activeKind));
-    setSelectedId(null);
+    setAppDialog({
+      type: 'confirm', title: 'Aplicar modelo base do Excel', destructive: true,
+      message: 'O cenário atual será substituído pelo modelo base inspirado no Excel. Os dados existentes deste cenário serão removidos.',
+      confirmLabel: 'Substituir cenário',
+      onConfirm: () => { setCanvas((previous) => createExcelTemplate(previous.assumptions, activeKind)); setSelectedId(null); },
+    });
+  };
+
+  const requestClearCanvas = () => {
+    setAppDialog({
+      type: 'confirm', title: 'Limpar o MFV', destructive: true,
+      message: 'Todos os elementos e setas serão removidos. As caixas fixas de identificação e demanda serão mantidas.',
+      confirmLabel: 'Limpar MFV',
+      onConfirm: () => {
+        setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] }));
+        setSelectedId(null);
+      },
+    });
   };
 
   const selectFuture = (id: string) => {
@@ -2931,26 +3040,29 @@ export default function App() {
   };
 
   const renameScenario = () => {
-    const name = window.prompt('Nome do cenário:', activeFuture.name)?.trim();
-    if (!name) return;
-    setWorkspace((previous) => {
-      const next = { ...previous, futures: previous.futures.map((variant) => variant.id === previous.activeFutureId ? { ...variant, name } : variant) };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
+    setAppDialog({
+      type: 'prompt', title: 'Renomear cenário', message: 'Escolha um nome curto e claro para identificar esta simulação.', value: activeFuture.name, confirmLabel: 'Salvar nome',
+      onConfirm: (value) => setWorkspace((previous) => {
+        const next = { ...previous, futures: previous.futures.map((variant) => variant.id === previous.activeFutureId ? { ...variant, name: value?.trim() || variant.name } : variant) };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        return next;
+      }),
     });
   };
 
   const deleteScenario = () => {
     if (workspace.futures.length === 1) {
-      window.alert('Mantenha pelo menos um cenário futuro. Você pode limpar ou renomear o cenário atual.');
+      setAppDialog({ type: 'alert', title: 'Cenário necessário', message: 'Mantenha pelo menos um cenário futuro. Você pode limpar ou renomear o cenário atual.' });
       return;
     }
-    if (!window.confirm(`Excluir o cenário “${activeFuture.name}”?`)) return;
-    setWorkspace((previous) => {
-      const futures = previous.futures.filter((variant) => variant.id !== previous.activeFutureId);
-      const next = { ...previous, futures, activeFutureId: futures[0].id };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
+    setAppDialog({
+      type: 'confirm', title: 'Excluir cenário', destructive: true, message: `O cenário “${activeFuture.name}” e suas alterações serão excluídos.`, confirmLabel: 'Excluir cenário',
+      onConfirm: () => setWorkspace((previous) => {
+        const futures = previous.futures.filter((variant) => variant.id !== previous.activeFutureId);
+        const next = { ...previous, futures, activeFutureId: futures[0].id };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        return next;
+      }),
     });
   };
 
@@ -2964,15 +3076,15 @@ export default function App() {
   const liveClock = `${String(Math.floor(liveElapsedSec / 3600)).padStart(2, '0')}:${String(Math.floor((liveElapsedSec % 3600) / 60)).padStart(2, '0')}`;
   const toggleLiveSimulation = () => {
     if (!simulation.rawMaterialEntry) {
-      window.alert('Adicione um estoque de matéria-prima para definir a entrada do fluxo produtivo.');
+      setAppDialog({ type: 'alert', title: 'Entrada do fluxo ausente', message: 'Adicione um estoque de matéria-prima para definir a entrada do fluxo produtivo.' });
       return;
     }
     if (!simulation.finalCustomer) {
-      window.alert('Adicione um cliente final para definir o término do fluxo produtivo.');
+      setAppDialog({ type: 'alert', title: 'Saída do fluxo ausente', message: 'Adicione um cliente final para definir o término do fluxo produtivo.' });
       return;
     }
     if (!simulation.processElements.length) {
-      window.alert('Adicione ao menos um processo com tempo de ciclo para executar a simulação.');
+      setAppDialog({ type: 'alert', title: 'Processos não configurados', message: 'Adicione ao menos um processo com tempo de ciclo para executar a simulação.' });
       return;
     }
     if (liveElapsedSec >= simulatedDaySeconds) setLiveElapsedSec(0);
@@ -3057,7 +3169,7 @@ export default function App() {
             {projectToolsOpen && <div className="sidebar-project-actions">
               <button onClick={applyExcelTemplate} title="Montar o fluxo padrão usado no Excel"><LayoutTemplate size={17} /><span>Modelo base do Excel</span></button>
               <button className="sidebar-export-button" onClick={() => { resetLiveSimulation(); setSelectedId(null); setExportOpen(true); }}><Download size={17} /><span>Imprimir e exportar</span></button>
-              <button className="sidebar-clear-button" onClick={() => { if (window.confirm('Limpar os elementos do canvas? As caixas de identificação e demanda serão mantidas.')) { setCanvas((previous) => ({ ...previous, elements: previous.elements.filter((element) => [FIXED_PLANNING_ID, FIXED_IDENTIFICATION_ID].includes(element.id)), arrows: [] })); setSelectedId(null); } }}>
+              <button className="sidebar-clear-button" onClick={requestClearCanvas}>
                 <RotateCcw size={17} /><span>Limpar</span>
               </button>
             </div>}
@@ -3113,9 +3225,9 @@ export default function App() {
               {liveRunning ? <Pause size={16}/> : <Play size={16}/>}
             </button>
             <button onClick={resetLiveSimulation} aria-label="Reiniciar simulação"><Square size={13}/></button>
-            <label><span>Velocidade</span><select value={liveSpeed} onChange={(event) => setLiveSpeed(Number(event.target.value))}>
-              <option value={60}>1 min/s</option><option value={300}>5 min/s</option><option value={1200}>20 min/s</option>
-            </select></label>
+            <label><span>Velocidade</span><SiteSelect className="dark" value={String(liveSpeed)} onChange={(value) => setLiveSpeed(Number(value))} ariaLabel="Velocidade da simulação" options={[
+              { value: '60', label: '1 min/s' }, { value: '300', label: '5 min/s' }, { value: '1200', label: '20 min/s' },
+            ]}/></label>
           </div>
           <div className="live-metrics">
             <div><span>Tempo simulado</span><strong>{liveClock}</strong></div>
@@ -3132,9 +3244,7 @@ export default function App() {
         {activeKind === 'future' && <div className="scenario-toolbar no-print">
           <div className="scenario-selector">
             <span>Cenário de simulação</span>
-            <select value={workspace.activeFutureId} onChange={(event) => selectFuture(event.target.value)}>
-              {workspace.futures.map((variant) => <option key={variant.id} value={variant.id}>{variant.name}</option>)}
-            </select>
+            <SiteSelect value={workspace.activeFutureId} onChange={selectFuture} ariaLabel="Cenário de simulação" options={workspace.futures.map((variant) => ({ value: variant.id, label: variant.name }))}/>
             <span className="future-sync-note"><CheckCircle2 size={13}/> recebe alterações do Estado atual</span>
           </div>
           <div className="scenario-actions">
@@ -3298,6 +3408,7 @@ export default function App() {
         focusAssistantTarget(targetId);
       }} onClose={() => setStressTestOpen(false)} />}
       {manualOpen && <ManualModal onClose={closeManual} />}
+      {appDialog && <AppDialog dialog={appDialog} onClose={() => setAppDialog(null)} />}
     </div>
   );
 }
@@ -3473,12 +3584,12 @@ function StressTestModal({ canvas, onFocus, onClose }: {
         <details className="stress-advanced" open>
           <summary><div><strong>Calendário, falhas e logística</strong><span>Condições adicionais aplicadas em todos os dias do teste</span></div><b>Configurar</b></summary>
           <div className="stress-advanced-grid">
-            <label><span>Turnos por dia</span><select value={settings.shiftsPerDay} onChange={(event) => update('shiftsPerDay', Number(event.target.value))}><option value={1}>1 turno</option><option value={2}>2 turnos</option><option value={3}>3 turnos</option></select></label>
+            <label><span>Turnos por dia</span><SiteSelect value={String(settings.shiftsPerDay)} onChange={(value) => update('shiftsPerDay', Number(value))} ariaLabel="Turnos por dia" options={[{ value: '1', label: '1 turno' }, { value: '2', label: '2 turnos' }, { value: '3', label: '3 turnos' }]}/></label>
             <label><span>Minutos por turno</span><input type="number" min={60} max={720} step={15} value={settings.minutesPerShift} onChange={(event) => update('minutesPerShift', Number(event.target.value))} /></label>
             <label><span>Intervalo por turno</span><div><input type="number" min={0} max={240} step={5} value={settings.breakMinutesPerShift} onChange={(event) => update('breakMinutesPerShift', Number(event.target.value))} /><small>min</small></div></label>
             <label><span>Atraso do fornecedor</span><div><input type="number" min={0} max={1440} step={15} value={settings.supplierDelayMinutes} onChange={(event) => update('supplierDelayMinutes', Number(event.target.value))} /><small>min/dia</small></div></label>
             <label><span>Tempo de transporte</span><div><input type="number" min={0} max={2880} step={15} value={settings.transportDelayMinutes} onChange={(event) => update('transportDelayMinutes', Number(event.target.value))} /><small>min</small></div></label>
-            <label className="stress-failure-process"><span>Falha específica em</span><select value={settings.failureProcessId} onChange={(event) => update('failureProcessId', event.target.value)}><option value="">Nenhuma falha direcionada</option>{processOptions.map((process) => <option key={process.id} value={process.id}>{process.label}</option>)}</select></label>
+            <label className="stress-failure-process"><span>Falha específica em</span><SiteSelect value={settings.failureProcessId} onChange={(value) => update('failureProcessId', value)} ariaLabel="Processo com falha específica" options={[{ value: '', label: 'Nenhuma falha direcionada' }, ...processOptions.map((process) => ({ value: process.id, label: process.label }))]}/></label>
             <label><span>Início da falha</span><div><input type="number" min={0} max={2160} step={15} disabled={!settings.failureProcessId} value={settings.failureStartMinute} onChange={(event) => update('failureStartMinute', Number(event.target.value))} /><small>min do dia</small></div></label>
             <label><span>Duração da falha</span><div><input type="number" min={0} max={1440} step={15} disabled={!settings.failureProcessId} value={settings.failureDurationMinutes} onChange={(event) => update('failureDurationMinutes', Number(event.target.value))} /><small>min/dia</small></div></label>
           </div>
